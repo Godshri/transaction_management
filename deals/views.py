@@ -31,7 +31,7 @@ def index(request):
             'user_name': f"{user.first_name} {user.last_name}".strip() or user.email
         })
     except Exception as e:
-        # Если куки устарели или нет аутентификации
+
         return render(request, 'deals/welcome.html')
 
 
@@ -51,7 +51,7 @@ def user_deals(request):
             'start': 0
         }).get('result', [])
 
-        # Добавляем форматированный приоритет
+
         for deal in deals:
             priority_value = deal.get('UF_CRM_1757684575')
             priority_mapping = {
@@ -83,21 +83,21 @@ def create_deal(request):
             custom_priority = request.POST.get('custom_priority')
             description = request.POST.get('description', '')
 
-            # Маппинг приоритетов для Bitrix24
+
             priority_mapping = {
                 'high': '54',
                 'medium': '52',
                 'low': '50'
             }
-            bitrix_priority = priority_mapping.get(custom_priority, '52')  # По умолчанию средний
+            bitrix_priority = priority_mapping.get(custom_priority, '52')
 
-            # Создаем сделку в Bitrix24
+
             result = token.call_api_method('crm.deal.add', {
                 'fields': {
                     'TITLE': title,
                     'OPPORTUNITY': opportunity,
                     'ASSIGNED_BY_ID': request.bitrix_user.bitrix_id,
-                    'UF_CRM_1757684575': bitrix_priority,  # Используем числовое значение
+                    'UF_CRM_1757684575': bitrix_priority,
                     'COMMENTS': description,
                     'CATEGORY_ID': 0
                 }
@@ -105,12 +105,12 @@ def create_deal(request):
 
             deal_id = result.get('result')
 
-            # Сохраняем сделку в локальную БД
+
             if deal_id:
                 CustomDeal.objects.create(
                     bitrix_id=deal_id,
                     title=title,
-                    custom_priority=custom_priority  # Сохраняем строковое значение
+                    custom_priority=custom_priority
                 )
 
             return redirect('deals')

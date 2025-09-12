@@ -8,12 +8,12 @@
 
     <div class="form-group">
         <label for="title">Название сделки *</label>
-        <input type="text" id="title" name="title" required>
+        <input type="text" id="title" name="title" required placeholder="Введите название сделки">
     </div>
 
     <div class="form-group">
         <label for="opportunity">Сумма сделки</label>
-        <input type="number" id="opportunity" name="opportunity" step="0.01" min="0">
+        <input type="number" id="opportunity" name="opportunity" step="0.01" min="0" placeholder="0.00">
     </div>
 
     <div class="form-group">
@@ -21,15 +21,11 @@
         <select id="custom_priority" name="custom_priority" required>
             <option value="">Выберите приоритет</option>
             <option value="high">Высокий</option>
-            <option value="medium" selected>Средний</option>  <!-- Добавлено selected -->
+            <option value="medium" selected>Средний</option>
             <option value="low">Низкий</option>
         </select>
     </div>
 
-    <div class="form-group">
-        <label for="description">Описание</label>
-        <textarea id="description" name="description" rows="4"></textarea>
-    </div>
 
     <button type="submit">Создать сделку</button>
 </form>

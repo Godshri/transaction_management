@@ -4,17 +4,35 @@
 <h1>Мои последние 10 активных сделок</h1>
 
 {% if deals %}
-    {% for deal in deals %}
-    <div class="deal-card">
-        <h3>{{ deal.TITLE }}</h3>
-        <p><strong>ID:</strong> {{ deal.ID }}</p>
-        <p><strong>Сумма:</strong> {{ deal.OPPORTUNITY|default:"0" }} ₽</p>
-        <p><strong>Стадия:</strong> {{ deal.STAGE_ID }}</p>
-        <p><strong>Приоритет:</strong> {{ deal.formatted_priority }}</p>
-        <p><strong>Создана:</strong> {{ deal.DATE_CREATE }}</p>
-    </div>
-    {% endfor %}
+    <table class="deals-table">
+        <thead>
+            <tr>
+                <th>Название</th>
+                <th>ID</th>
+                <th>Сумма</th>
+                <th>Стадия</th>
+                <th>Приоритет</th>
+                <th>Дата создания</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for deal in deals %}
+            <tr>
+                <td><strong>{{ deal.TITLE }}</strong></td>
+                <td>{{ deal.ID }}</td>
+                <td>{{ deal.OPPORTUNITY|default:"0" }} ₽</td>
+                <td>{{ deal.STAGE_ID }}</td>
+                <td>
+                    <span class="priority-{{ deal.formatted_priority|lower }}">
+                        {{ deal.formatted_priority }}
+                    </span>
+                </td>
+                <td>{{ deal.DATE_CREATE }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 {% else %}
-    <p>У вас нет активных сделок</p>
+    <p class="empty-state">У вас нет активных сделок</p>
 {% endif %}
 {% endblock %}
