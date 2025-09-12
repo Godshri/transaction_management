@@ -19,7 +19,7 @@ def index_initial(request):
             'user_name': f"{user.first_name} {user.last_name}".strip() or user.email
         })
     except Exception as e:
-        return render(request, 'deals/welcome.html')
+        return render(request, 'deals/index.html')
 
 
 @main_auth(on_cookies=True)
