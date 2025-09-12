@@ -1,0 +1,20 @@
+{% extends 'deals/base.html' %}
+
+{% block content %}
+<h1>Мои последние 10 активных сделок</h1>
+
+{% if deals %}
+    {% for deal in deals %}
+    <div class="deal-card">
+        <h3>{{ deal.TITLE }}</h3>
+        <p><strong>ID:</strong> {{ deal.ID }}</p>
+        <p><strong>Сумма:</strong> {{ deal.OPPORTUNITY|default:"0" }} ₽</p>
+        <p><strong>Стадия:</strong> {{ deal.STAGE_ID }}</p>
+        <p><strong>Приоритет:</strong> {{ deal.UF_CRM_CUSTOM_PRIORITY|default:"Не указан" }}</p>
+        <p><strong>Создана:</strong> {{ deal.DATE_CREATE }}</p>
+    </div>
+    {% endfor %}
+{% else %}
+    <p>У вас нет активных сделок</p>
+{% endif %}
+{% endblock %}

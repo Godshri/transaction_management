@@ -1,0 +1,36 @@
+{% extends 'deals/base.html' %}
+
+{% block content %}
+<h1>Создание новой сделки</h1>
+
+<form method="post">
+    {% csrf_token %}
+
+    <div class="form-group">
+        <label for="title">Название сделки *</label>
+        <input type="text" id="title" name="title" required>
+    </div>
+
+    <div class="form-group">
+        <label for="opportunity">Сумма сделки</label>
+        <input type="number" id="opportunity" name="opportunity" step="0.01" min="0">
+    </div>
+
+    <div class="form-group">
+        <label for="custom_priority">Приоритет (кастомное поле)</label>
+        <select id="custom_priority" name="custom_priority">
+            <option value="">Выберите приоритет</option>
+            <option value="high">Высокий</option>
+            <option value="medium">Средний</option>
+            <option value="low">Низкий</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="description">Описание</label>
+        <textarea id="description" name="description" rows="4"></textarea>
+    </div>
+
+    <button type="submit">Создать сделку</button>
+</form>
+{% endblock %}
