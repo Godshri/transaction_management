@@ -10,7 +10,7 @@
         <p><strong>ID:</strong> {{ deal.ID }}</p>
         <p><strong>Сумма:</strong> {{ deal.OPPORTUNITY|default:"0" }} ₽</p>
         <p><strong>Стадия:</strong> {{ deal.STAGE_ID }}</p>
-        <p><strong>Приоритет:</strong> {{ deal.UF_CRM_CUSTOM_PRIORITY|default:"Не указан" }}</p>
+        <p><strong>Приоритет:</strong> {{ deal.formatted_priority }}</p>
         <p><strong>Создана:</strong> {{ deal.DATE_CREATE }}</p>
     </div>
     {% endfor %}

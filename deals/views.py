@@ -6,6 +6,7 @@ from integration_utils.bitrix24.bitrix_user_auth.authenticate_on_start_applicati
     authenticate_on_start_application
 from integration_utils.bitrix24.bitrix_user_auth.get_bitrix_user_token_from_cookie import \
     get_bitrix_user_token_from_cookie, EmptyCookie
+from .models import CustomDeal  # Добавьте импорт модели
 
 
 @csrf_exempt
@@ -45,10 +46,23 @@ def user_deals(request):
                 'ASSIGNED_BY_ID': request.bitrix_user.bitrix_id,
                 'STAGE_SEMANTIC_ID': 'P'
             },
-            'select': ['ID', 'TITLE', 'STAGE_ID', 'OPPORTUNITY', 'DATE_CREATE', 'UF_CRM_CUSTOM_PRIORITY'],
+            'select': ['ID', 'TITLE', 'STAGE_ID', 'OPPORTUNITY', 'DATE_CREATE', 'UF_CRM_1757684575'],
             'order': {'DATE_CREATE': 'DESC'},
             'start': 0
         }).get('result', [])
+
+        # Добавляем форматированный приоритет
+        for deal in deals:
+            priority_value = deal.get('UF_CRM_1757684575')
+            priority_mapping = {
+                '50': 'Низкий',
+                '52': 'Средний',
+                '54': 'Высокий',
+                'high': 'Высокий',
+                'medium': 'Средний',
+                'low': 'Низкий'
+            }
+            deal['formatted_priority'] = priority_mapping.get(str(priority_value), 'Не указан')
 
         return render(request, 'deals/deals.html', {
             'deals': deals[:10]
@@ -69,16 +83,35 @@ def create_deal(request):
             custom_priority = request.POST.get('custom_priority')
             description = request.POST.get('description', '')
 
+            # Маппинг приоритетов для Bitrix24
+            priority_mapping = {
+                'high': '54',
+                'medium': '52',
+                'low': '50'
+            }
+            bitrix_priority = priority_mapping.get(custom_priority, '52')  # По умолчанию средний
+
+            # Создаем сделку в Bitrix24
             result = token.call_api_method('crm.deal.add', {
                 'fields': {
                     'TITLE': title,
                     'OPPORTUNITY': opportunity,
                     'ASSIGNED_BY_ID': request.bitrix_user.bitrix_id,
-                    'UF_CRM_CUSTOM_PRIORITY': custom_priority,
+                    'UF_CRM_1757684575': bitrix_priority,  # Используем числовое значение
                     'COMMENTS': description,
                     'CATEGORY_ID': 0
                 }
             })
+
+            deal_id = result.get('result')
+
+            # Сохраняем сделку в локальную БД
+            if deal_id:
+                CustomDeal.objects.create(
+                    bitrix_id=deal_id,
+                    title=title,
+                    custom_priority=custom_priority  # Сохраняем строковое значение
+                )
 
             return redirect('deals')
 
