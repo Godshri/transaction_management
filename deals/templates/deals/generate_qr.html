@@ -7,34 +7,36 @@
 <form method="post" id="qr-form">
     {% csrf_token %}
 
-    <div class="form-group">
+    <div class="field-group">
         <label for="product-search">Поиск товара</label>
         <input type="text" id="product-search" class="form-control"
                placeholder="Начните вводить название товара...">
-        <div class="form-hint">Введите название товара и выберите из списка</div>
+        <span class="form-hint">Введите название товара и выберите из списка</span>
 
-        <div id="search-results" style="display: none; margin-top: 10px; border: 1px solid #ddd; border-radius: 5px; max-height: 200px; overflow-y: auto;">
-            <ul id="results-list" style="list-style: none; padding: 0; margin: 0;"></ul>
+        <div id="search-results">
+            <ul id="results-list"></ul>
         </div>
     </div>
 
-    <div class="form-group">
+    <div class="field-group">
         <label for="product_id">ID товара *</label>
         <input type="text" id="product_id" name="product_id" required
                class="form-control" placeholder="ID товара">
-        <div class="form-hint">Введите числовой ID товара из Битрикс24</div>
+        <span class="form-hint">Введите числовой ID товара из Битрикс24</span>
     </div>
 
-    <div class="form-group">
+    <div class="field-group">
         <label>Информация о товаре</label>
-        <div id="product-info" class="field-group" style="display: none;">
+        <div id="product-info" class="product-info">
             <h4 id="product-name">Название товара</h4>
             <p id="product-price">Цена: <span id="price-value">0</span> ₽</p>
             <p id="product-description">Описание: <span id="description-value">Не указано</span></p>
         </div>
     </div>
 
-    <button type="submit" id="generate-btn">Сгенерировать QR-код</button>
+    <div class="text-center mt-4">
+        <button type="submit" class="button">Сгенерировать QR-код</button>
+    </div>
 </form>
 
 <script>
@@ -47,7 +49,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const productName = document.getElementById('product-name');
     const priceValue = document.getElementById('price-value');
     const descriptionValue = document.getElementById('description-value');
-    const generateBtn = document.getElementById('generate-btn');
 
     let timeout = null;
 
@@ -69,9 +70,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (data.results && data.results.length > 0) {
                         data.results.forEach(product => {
                             const li = document.createElement('li');
-                            li.style.padding = '10px';
-                            li.style.borderBottom = '1px solid #eee';
-                            li.style.cursor = 'pointer';
                             li.innerHTML = `
                                 <strong>${product.name}</strong><br>
                                 <small>ID: ${product.id} | Цена: ${product.price} ₽</small>
@@ -113,7 +111,6 @@ document.addEventListener('DOMContentLoaded', function() {
     productIdInput.addEventListener('blur', function() {
         const productId = this.value.trim();
         if (productId) {
-            // Здесь можно добавить запрос для получения детальной информации о товаре
             productName.textContent = `Товар ID: ${productId}`;
             priceValue.textContent = 'Информация будет загружена';
             productInfo.style.display = 'block';
@@ -121,10 +118,4 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-
-<style>
-#results-list li:hover {
-    background-color: #f5f5f5;
-}
-</style>
 {% endblock %}

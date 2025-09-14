@@ -6,27 +6,40 @@
 <form method="post">
     {% csrf_token %}
 
-    <div class="form-group">
+    <div class="field-group">
         <label for="title">Название сделки *</label>
-        <input type="text" id="title" name="title" required placeholder="Введите название сделки">
+        <input type="text" id="title" name="title" class="form-control" required
+               placeholder="Введите название сделки">
+        <span class="form-hint">Например: Поставка оборудования для офиса</span>
     </div>
 
-    <div class="form-group">
-        <label for="opportunity">Сумма сделки</label>
-        <input type="number" id="opportunity" name="opportunity" step="0.01" min="0" placeholder="0.00">
+    <div class="field-group">
+        <label for="opportunity">Сумма сделки (₽)</label>
+        <input type="number" id="opportunity" name="opportunity" class="form-control"
+               placeholder="Введите сумму сделки" step="0.01" min="0">
+        <span class="form-hint">Укажите ожидаемую сумму сделки в рублях</span>
     </div>
 
-    <div class="form-group">
-        <label for="custom_priority">Приоритет</label>
-        <select id="custom_priority" name="custom_priority" required>
-            <option value="">Выберите приоритет</option>
+    <div class="field-group">
+        <label for="custom_priority">Приоритет сделки</label>
+        <select id="custom_priority" name="custom_priority" class="form-control">
+            <option value="">Не указан</option>
             <option value="high">Высокий</option>
-            <option value="medium" selected>Средний</option>
+            <option value="medium">Средний</option>
             <option value="low">Низкий</option>
         </select>
+        <span class="form-hint">Выберите приоритет для этой сделки</span>
     </div>
 
+    <div class="field-group">
+        <label for="comments">Комментарии</label>
+        <textarea id="comments" name="comments" class="form-control" rows="4"
+                  placeholder="Дополнительная информация о сделке..."></textarea>
+        <span class="form-hint">Любые дополнительные детали или заметки</span>
+    </div>
 
-    <button type="submit">Создать сделку</button>
+    <div class="text-center mt-4">
+        <button type="submit" class="button">Создать сделку</button>
+    </div>
 </form>
 {% endblock %}

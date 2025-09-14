@@ -2,10 +2,9 @@
 
 {% block content %}
 <h1>Добро пожаловать!</h1>
-<div class="user-info">
+<div class="user-info-card">
     <h2>Информация о пользователе</h2>
     <p><strong>Имя:</strong> {{ user_name }}</p>
     <p><strong>Email:</strong> {{ request.bitrix_user.email }}</p>
-    <p><strong>ID в Битрикс:</strong> {{ request.bitrix_user.bitrix_id }}</p>
 </div>
 {% endblock %}
