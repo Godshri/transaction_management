@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Информация о товаре - {{ qr_link.product_name }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .product-card {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        .product-title {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+        .product-info {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .product-info strong {
+            color: #666;
+            display: inline-block;
+            width: 120px;
+        }
+        .section-title {
+            background: #667eea;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            margin: 20px 0 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="product-card">
+        <h1 class="product-title">{{ qr_link.product_name }}</h1>
+
+        <div class="section-title">Основная информация</div>
+
+        <div class="product-info">
+            <strong>ID товара:</strong> {{ qr_link.product_id }}
+        </div>
+
+        <div class="product-info">
+            <strong>Дата создания:</strong> {{ qr_link.created_at|date:"d.m.Y H:i" }}
+        </div>
+
+        {% if product_data %}
+            {% if product_data.NAME %}
+            <div class="product-info">
+                <strong>Название:</strong> {{ product_data.NAME }}
+            </div>
+            {% endif %}
+
+            <div class="product-info">
+                <strong>Цена:</strong>
+                {% if product_data.PRICE %}
+                    {{ product_data.PRICE }} ₽
+                {% else %}
+                    Не указана
+                {% endif %}
+            </div>
+
+            {% if product_data.DESCRIPTION %}
+            <div class="product-info">
+                <strong>Описание:</strong><br>
+                {{ product_data.DESCRIPTION|linebreaks }}
+            </div>
+            {% endif %}
+
+            {% if product_data.CURRENCY_ID %}
+            <div class="product-info">
+                <strong>Валюта:</strong> {{ product_data.CURRENCY_ID }}
+            </div>
+            {% endif %}
+
+            {% if product_data.MEASURE %}
+            <div class="product-info">
+                <strong>Единица измерения:</strong> {{ product_data.MEASURE }}
+            </div>
+            {% endif %}
+
+        {% else %}
+            <div class="product-info">
+                <strong>Статус:</strong> Информация о товаре недоступна
+            </div>
+        {% endif %}
+    </div>
+
+    <div style="text-align: center; margin-top: 30px;">
+        <small style="color: #888;">
+            Ссылка действительна до: {{ qr_link.created_at|date:"d.m.Y" }}<br>
+            Сгенерировано через систему QR-кодов
+        </small>
+    </div>
+</body>
+</html>

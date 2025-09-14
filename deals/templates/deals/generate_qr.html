@@ -1,0 +1,130 @@
+{% extends 'deals/base.html' %}
+{% load static %}
+
+{% block content %}
+<h1>Генерация QR-кода для товара</h1>
+
+<form method="post" id="qr-form">
+    {% csrf_token %}
+
+    <div class="form-group">
+        <label for="product-search">Поиск товара</label>
+        <input type="text" id="product-search" class="form-control"
+               placeholder="Начните вводить название товара...">
+        <div class="form-hint">Введите название товара и выберите из списка</div>
+
+        <div id="search-results" style="display: none; margin-top: 10px; border: 1px solid #ddd; border-radius: 5px; max-height: 200px; overflow-y: auto;">
+            <ul id="results-list" style="list-style: none; padding: 0; margin: 0;"></ul>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="product_id">ID товара *</label>
+        <input type="text" id="product_id" name="product_id" required
+               class="form-control" placeholder="ID товара">
+        <div class="form-hint">Введите числовой ID товара из Битрикс24</div>
+    </div>
+
+    <div class="form-group">
+        <label>Информация о товаре</label>
+        <div id="product-info" class="field-group" style="display: none;">
+            <h4 id="product-name">Название товара</h4>
+            <p id="product-price">Цена: <span id="price-value">0</span> ₽</p>
+            <p id="product-description">Описание: <span id="description-value">Не указано</span></p>
+        </div>
+    </div>
+
+    <button type="submit" id="generate-btn">Сгенерировать QR-код</button>
+</form>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('product-search');
+    const productIdInput = document.getElementById('product_id');
+    const resultsContainer = document.getElementById('search-results');
+    const resultsList = document.getElementById('results-list');
+    const productInfo = document.getElementById('product-info');
+    const productName = document.getElementById('product-name');
+    const priceValue = document.getElementById('price-value');
+    const descriptionValue = document.getElementById('description-value');
+    const generateBtn = document.getElementById('generate-btn');
+
+    let timeout = null;
+
+    // Поиск товаров при вводе
+    searchInput.addEventListener('input', function() {
+        clearTimeout(timeout);
+        timeout = setTimeout(function() {
+            const query = searchInput.value.trim();
+            if (query.length < 2) {
+                resultsContainer.style.display = 'none';
+                return;
+            }
+
+            fetch(`/api/search-products/?q=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    resultsList.innerHTML = '';
+
+                    if (data.results && data.results.length > 0) {
+                        data.results.forEach(product => {
+                            const li = document.createElement('li');
+                            li.style.padding = '10px';
+                            li.style.borderBottom = '1px solid #eee';
+                            li.style.cursor = 'pointer';
+                            li.innerHTML = `
+                                <strong>${product.name}</strong><br>
+                                <small>ID: ${product.id} | Цена: ${product.price} ₽</small>
+                            `;
+
+                            li.addEventListener('click', function() {
+                                productIdInput.value = product.id;
+                                searchInput.value = product.name;
+                                resultsContainer.style.display = 'none';
+
+                                // Показываем информацию о товаре
+                                productName.textContent = product.name;
+                                priceValue.textContent = product.price;
+                                productInfo.style.display = 'block';
+                            });
+
+                            resultsList.appendChild(li);
+                        });
+                        resultsContainer.style.display = 'block';
+                    } else {
+                        resultsContainer.style.display = 'none';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    resultsContainer.style.display = 'none';
+                });
+        }, 300);
+    });
+
+    // Скрываем результаты при клике вне области
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
+            resultsContainer.style.display = 'none';
+        }
+    });
+
+    // Получение информации о товаре по ID
+    productIdInput.addEventListener('blur', function() {
+        const productId = this.value.trim();
+        if (productId) {
+            // Здесь можно добавить запрос для получения детальной информации о товаре
+            productName.textContent = `Товар ID: ${productId}`;
+            priceValue.textContent = 'Информация будет загружена';
+            productInfo.style.display = 'block';
+        }
+    });
+});
+</script>
+
+<style>
+#results-list li:hover {
+    background-color: #f5f5f5;
+}
+</style>
+{% endblock %}

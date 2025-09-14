@@ -153,3 +153,5 @@ CSRF_TRUSTED_ORIGINS = [
     'https://b24-oyi9l4.bitrix24.ru',
     'https://*.bitrix24.ru',
 ]
+
+BASE_DOMAIN = 'http://localhost:8000'

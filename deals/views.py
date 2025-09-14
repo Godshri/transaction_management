@@ -1,12 +1,19 @@
-from django.shortcuts import render, redirect
-from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
+from django.core.files.base import ContentFile
+from django.conf import settings
 from integration_utils.bitrix24.bitrix_user_auth.main_auth import main_auth
 from integration_utils.bitrix24.bitrix_user_auth.authenticate_on_start_application import \
     authenticate_on_start_application
 from integration_utils.bitrix24.bitrix_user_auth.get_bitrix_user_token_from_cookie import \
     get_bitrix_user_token_from_cookie, EmptyCookie
-from .models import CustomDeal  # Добавьте импорт модели
+from .models import CustomDeal, ProductQRLink
+import qrcode
+import io
+import base64
+import json
+from urllib.parse import urljoin
 
 
 @csrf_exempt
@@ -31,7 +38,6 @@ def index(request):
             'user_name': f"{user.first_name} {user.last_name}".strip() or user.email
         })
     except Exception as e:
-
         return render(request, 'deals/welcome.html')
 
 
@@ -50,7 +56,6 @@ def user_deals(request):
             'order': {'DATE_CREATE': 'DESC'},
             'start': 0
         }).get('result', [])
-
 
         for deal in deals:
             priority_value = deal.get('UF_CRM_1757684575')
@@ -83,14 +88,12 @@ def create_deal(request):
             custom_priority = request.POST.get('custom_priority')
             description = request.POST.get('description', '')
 
-
             priority_mapping = {
                 'high': '54',
                 'medium': '52',
                 'low': '50'
             }
             bitrix_priority = priority_mapping.get(custom_priority, '52')
-
 
             result = token.call_api_method('crm.deal.add', {
                 'fields': {
@@ -105,7 +108,6 @@ def create_deal(request):
 
             deal_id = result.get('result')
 
-
             if deal_id:
                 CustomDeal.objects.create(
                     bitrix_id=deal_id,
@@ -118,3 +120,135 @@ def create_deal(request):
         return render(request, 'deals/create_deal.html')
     except Exception as e:
         return HttpResponse(f"Ошибка при создании сделки: {str(e)}", status=500)
+
+
+@main_auth(on_cookies=True)
+def generate_qr(request):
+    """Генерация QR-кода для товара"""
+    if request.method == 'POST':
+        try:
+            product_id = request.POST.get('product_id')
+            if not product_id:
+                return HttpResponseBadRequest("Не указан ID товара")
+
+            try:
+                product_id_int = int(product_id)
+            except ValueError:
+                return HttpResponseBadRequest("ID товара должен быть числом")
+
+            token = request.bitrix_user_token
+
+            # Получаем информацию о товаре
+            product_result = token.call_api_method('crm.product.get', {
+                'id': product_id_int
+            })
+
+            if 'result' not in product_result:
+                return HttpResponseBadRequest("Товар не найден")
+
+            product = product_result['result']
+            product_name = product.get('NAME', 'Неизвестный товар')
+
+            # Сохраняем данные товара
+            product_data = {
+                'NAME': product_name,
+                'PRICE': product.get('PRICE'),
+                'DESCRIPTION': product.get('DESCRIPTION') or product.get('PREVIEW_TEXT') or product.get('DETAIL_TEXT'),
+                'CURRENCY_ID': product.get('CURRENCY_ID'),
+                'MEASURE': product.get('MEASURE'),
+                'SECTION_ID': product.get('SECTION_ID')
+            }
+
+            # Создаем секретную ссылку с сохраненными данными
+            qr_link = ProductQRLink.objects.create(
+                product_id=product_id_int,
+                product_name=product_name,
+                product_data=product_data,  # Сохраняем данные
+                created_by=request.bitrix_user
+            )
+
+            # Остальной код генерации QR-кода...
+            base_url = getattr(settings, 'BASE_DOMAIN', 'http://localhost:8000')
+            product_url = urljoin(base_url, qr_link.get_absolute_url())
+
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(product_url)
+            qr.make(fit=True)
+
+            img = qr.make_image(fill_color="black", back_color="white")
+            buffer = io.BytesIO()
+            img.save(buffer, format="PNG")
+            img_str = base64.b64encode(buffer.getvalue()).decode()
+
+            return render(request, 'deals/qr_result.html', {
+                'qr_image': img_str,
+                'product_url': product_url,
+                'product_name': product_name,
+                'product_id': product_id_int
+            })
+
+        except Exception as e:
+            return HttpResponse(f"Ошибка при генерации QR-кода: {str(e)}", status=500)
+
+    return render(request, 'deals/generate_qr.html')
+
+
+def product_qr_detail(request, uuid):
+    """Страница товара по секретной ссылке"""
+    try:
+        qr_link = ProductQRLink.objects.get(id=uuid, is_active=True)
+
+        # Используем сохраненные данные товара
+        product_data = qr_link.product_data or {}
+
+        return render(request, 'deals/product_detail.html', {
+            'qr_link': qr_link,
+            'product_data': product_data,
+            'error_message': None
+        })
+
+    except ProductQRLink.DoesNotExist:
+        return HttpResponse("Страница не найдена или ссылка недействительна", status=404)
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return HttpResponse("Ошибка сервера", status=500)
+
+
+@main_auth(on_cookies=True)
+def search_products(request):
+    """Поиск товаров для автокомплита"""
+    try:
+        query = request.GET.get('q', '')
+        if not query:
+            return JsonResponse({'results': []})
+
+        token = request.bitrix_user_token
+
+        # Ищем товары по названию
+        products_result = token.call_api_method('crm.product.list', {
+            'filter': {'%NAME': query},
+            'select': ['ID', 'NAME', 'PRICE', 'DESCRIPTION'],
+            'order': {'NAME': 'ASC'},
+            'start': 0
+        })
+
+        products = products_result.get('result', [])
+
+        results = []
+        for product in products[:10]:  # Ограничиваем 10 результатами
+            results.append({
+                'id': product['ID'],
+                'text': f"{product['NAME']} (ID: {product['ID']})",
+                'name': product['NAME'],
+                'price': product.get('PRICE', 0)
+            })
+
+        return JsonResponse({'results': results})
+
+    except Exception as e:
+        return JsonResponse({'results': []})
