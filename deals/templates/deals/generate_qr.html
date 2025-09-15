@@ -31,6 +31,9 @@
             <h4 id="product-name">Название товара</h4>
             <p id="product-price">Цена: <span id="price-value">0</span> ₽</p>
             <p id="product-description">Описание: <span id="description-value">Не указано</span></p>
+            <div id="product-image-preview" style="display: none; margin-top: 10px;">
+                <img id="preview-image" src="" alt="Превью товара" style="max-width: 200px; max-height: 200px;">
+            </div>
         </div>
     </div>
 
@@ -49,6 +52,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const productName = document.getElementById('product-name');
     const priceValue = document.getElementById('price-value');
     const descriptionValue = document.getElementById('description-value');
+    const productImagePreview = document.getElementById('product-image-preview');
+    const previewImage = document.getElementById('preview-image');
 
     let timeout = null;
 
@@ -71,8 +76,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         data.results.forEach(product => {
                             const li = document.createElement('li');
                             li.innerHTML = `
-                                <strong>${product.name}</strong><br>
-                                <small>ID: ${product.id} | Цена: ${product.price} ₽</small>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    ${product.image ? `<img src="https://b24-oyi9l4.bitrix24.ru${product.image}"
+                                        alt="${product.name}"
+                                        style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;"
+                                        onerror="this.style.display='none'">` : ''}
+                                    <div>
+                                        <strong>${product.name}</strong><br>
+                                        <small>ID: ${product.id} | Цена: ${product.price} ₽</small>
+                                    </div>
+                                </div>
                             `;
 
                             li.addEventListener('click', function() {
@@ -83,6 +96,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                 // Показываем информацию о товаре
                                 productName.textContent = product.name;
                                 priceValue.textContent = product.price;
+
+                                // Показываем превью изображения
+                                if (product.image) {
+                                    previewImage.src = 'https://b24-oyi9l4.bitrix24.ru' + product.image;
+                                    productImagePreview.style.display = 'block';
+                                } else {
+                                    productImagePreview.style.display = 'none';
+                                }
+
                                 productInfo.style.display = 'block';
                             });
 
@@ -113,6 +135,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (productId) {
             productName.textContent = `Товар ID: ${productId}`;
             priceValue.textContent = 'Информация будет загружена';
+            productImagePreview.style.display = 'none';
             productInfo.style.display = 'block';
         }
     });

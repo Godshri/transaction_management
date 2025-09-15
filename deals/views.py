@@ -16,6 +16,7 @@ import json
 from urllib.parse import urljoin
 import requests
 
+
 @csrf_exempt
 @main_auth(on_start=True, set_cookie=True)
 def index_initial(request):
@@ -149,6 +150,60 @@ def generate_qr(request):
             product = product_result['result']
             product_name = product.get('NAME', 'Неизвестный товар')
 
+            # Обрабатываем изображения товара
+            images = []
+
+            # Обрабатываем поле PROPERTY_44 (основные изображения)
+            property_44 = product.get('PROPERTY_44')
+            if property_44 and isinstance(property_44, list):
+                for i, img_data in enumerate(property_44):
+                    if isinstance(img_data, dict) and 'value' in img_data:
+                        value_data = img_data['value']
+                        if isinstance(value_data, dict):
+                            # Используем downloadUrl - он содержит правильную ссылку
+                            download_url = value_data.get('downloadUrl')
+                            if download_url:
+                                # Преобразуем относительный URL в абсолютный
+                                if not download_url.startswith(('http://', 'https://')):
+                                    download_url = f"https://b24-oyi9l4.bitrix24.ru{download_url}"
+
+                                images.append({
+                                    'id': f'image_{i}',
+                                    'src': download_url,
+                                    'title': f'Изображение {i + 1}'
+                                })
+
+            # Также проверяем другие возможные поля с изображениями
+            other_image_fields = ['PREVIEW_PICTURE', 'DETAIL_PICTURE', 'MORE_PHOTO']
+            for field in other_image_fields:
+                field_value = product.get(field)
+                if field_value:
+                    # Аналогичная обработка для других полей
+                    if isinstance(field_value, list):
+                        for i, img_data in enumerate(field_value):
+                            if isinstance(img_data, dict) and 'downloadUrl' in img_data:
+                                download_url = img_data.get('downloadUrl')
+                                if download_url:
+                                    if not download_url.startswith(('http://', 'https://')):
+                                        download_url = f"https://b24-oyi9l4.bitrix24.ru{download_url}"
+
+                                    images.append({
+                                        'id': f'{field}_{i}',
+                                        'src': download_url,
+                                        'title': f'{field} {i + 1}'
+                                    })
+                    elif isinstance(field_value, dict) and 'downloadUrl' in field_value:
+                        # Одиночное изображение
+                        download_url = field_value.get('downloadUrl')
+                        if download_url:
+                            if not download_url.startswith(('http://', 'https://')):
+                                download_url = f"https://b24-oyi9l4.bitrix24.ru{download_url}"
+
+                            images.append({
+                                'id': field,
+                                'src': download_url,
+                                'title': field.replace('_', ' ').title()
+                            })
 
             # Сохраняем данные товара
             product_data = {
@@ -165,6 +220,7 @@ def generate_qr(request):
                 product_id=product_id_int,
                 product_name=product_name,
                 product_data=product_data,
+                product_images=images,
                 created_by=request.bitrix_user
             )
 
@@ -198,15 +254,34 @@ def generate_qr(request):
     return render(request, 'deals/generate_qr.html')
 
 
+
 def product_qr_detail(request, uuid):
     """Страница товара по секретной ссылке"""
     try:
         qr_link = ProductQRLink.objects.get(id=uuid, is_active=True)
         product_data = qr_link.product_data or {}
+        product_images = qr_link.product_images or []
+
+        # Функция для преобразования ID изображения в URL
+        def get_image_url(image_id):
+            if not image_id:
+                return None
+            # Преобразуем ID в URL для изображения Битрикс24
+            return f"https://b24-oyi9l4.bitrix24.ru/bitrix/components/bitrix/main.show/templates/.default/images/no_photo.png?{image_id}"
+
+        # Преобразуем ID изображений в абсолютные URL
+        for img in product_images:
+            if 'src' in img and img['src']:
+                # Если это уже URL, оставляем как есть
+                if isinstance(img['src'], str) and img['src'].startswith(('http://', 'https://')):
+                    continue
+                # Если это ID изображения, преобразуем в URL
+                img['src'] = get_image_url(img['src'])
 
         return render(request, 'deals/product_detail.html', {
             'qr_link': qr_link,
             'product_data': product_data,
+            'product_images': product_images,
             'error_message': None
         })
 
@@ -215,7 +290,6 @@ def product_qr_detail(request, uuid):
     except Exception as e:
         print(f"Unexpected error: {e}")
         return HttpResponse("Ошибка сервера", status=500)
-
 
 @main_auth(on_cookies=True)
 def search_products(request):
@@ -227,10 +301,10 @@ def search_products(request):
 
         token = request.bitrix_user_token
 
-        # Ищем товары по названию
+        # Ищем товары по названию с получением поля PROPERTY_44
         products_result = token.call_api_method('crm.product.list', {
             'filter': {'%NAME': query},
-            'select': ['ID', 'NAME', 'PRICE', 'DESCRIPTION'],
+            'select': ['ID', 'NAME', 'PRICE', 'DESCRIPTION', 'PREVIEW_PICTURE', 'PROPERTY_44'],
             'order': {'NAME': 'ASC'},
             'start': 0
         })
@@ -238,17 +312,27 @@ def search_products(request):
         products = products_result.get('result', [])
 
         results = []
-        for product in products[:10]:  # Ограничиваем 10 результатами
+        for product in products[:10]:
+            # Получаем первое изображение из PROPERTY_44 если есть
+            main_image = None
+            if product.get('PREVIEW_PICTURE'):
+                main_image = product.get('PREVIEW_PICTURE')
+            elif product.get('PROPERTY_44'):
+                prop_44 = product['PROPERTY_44']
+                if isinstance(prop_44, list) and prop_44:
+                    main_image = prop_44[0]
+                elif prop_44:
+                    main_image = prop_44
+
             results.append({
                 'id': product['ID'],
                 'text': f"{product['NAME']} (ID: {product['ID']})",
                 'name': product['NAME'],
-                'price': product.get('PRICE', 0)
+                'price': product.get('PRICE', 0),
+                'image': main_image
             })
 
         return JsonResponse({'results': results})
 
     except Exception as e:
         return JsonResponse({'results': []})
-
-

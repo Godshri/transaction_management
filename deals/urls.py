@@ -1,4 +1,6 @@
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
 from . import views
 
 urlpatterns = [
@@ -10,3 +12,7 @@ urlpatterns = [
     path('product/<uuid:uuid>/', views.product_qr_detail, name='product_qr_detail'),
     path('api/search-products/', views.search_products, name='search_products'),
 ]
+
+# Для обслуживания медиафайлов в разработке
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

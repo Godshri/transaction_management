@@ -6,34 +6,58 @@
     <title>Информация о товаре - {{ qr_link.product_name }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
 </head>
 <body>
     <div class="container">
         <div class="product-card">
             <h1 class="product-title">{{ qr_link.product_name }}</h1>
 
+            {% if product_images %}
+                <div class="section-title">Изображения товара</div>
+                <div class="gallery">
+                    {% for image in product_images %}
+                        <div class="gallery-item">
+                            <img src="{{ image.src }}"
+                                 alt="{{ image.title }}"
+                                 class="gallery-image"
+                                 onerror="this.onerror=null; this.src='{% static 'images/no-image.png' %}';">
+                            <div class="gallery-caption">{{ image.title }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="product-info">
+                    <strong>Изображения</strong>
+                    <p>Изображения товара отсутствуют</p>
+                    <small>ID товара: {{ qr_link.product_id }}</small>
+                </div>
+            {% endif %}
+
             <div class="section-title">Основная информация</div>
 
             <div class="product-info">
                 <strong>ID товара</strong>
-                {{ qr_link.product_id }}
+                <p>{{ qr_link.product_id }}</p>
             </div>
 
             {% if product_data %}
                 {% if product_data.NAME %}
                 <div class="product-info">
                     <strong>Название</strong>
-                    {{ product_data.NAME }}
+                    <p>{{ product_data.NAME }}</p>
                 </div>
                 {% endif %}
 
                 <div class="product-info">
                     <strong>Цена</strong>
-                    {% if product_data.PRICE %}
-                        {{ product_data.PRICE }} ₽
-                    {% else %}
-                        Не указана
-                    {% endif %}
+                    <p>
+                        {% if product_data.PRICE %}
+                            {{ product_data.PRICE }} ₽
+                        {% else %}
+                            Не указана
+                        {% endif %}
+                    </p>
                 </div>
 
                 {% if product_data.DESCRIPTION %}
@@ -48,21 +72,21 @@
                 {% if product_data.CURRENCY_ID %}
                 <div class="product-info">
                     <strong>Валюта</strong>
-                    {{ product_data.CURRENCY_ID }}
+                    <p>{{ product_data.CURRENCY_ID }}</p>
                 </div>
                 {% endif %}
 
                 {% if product_data.MEASURE %}
                 <div class="product-info">
-                    <strong>Единица измерения</strong>
-                    {{ product_data.MEASURE }}
+                    <strong>📏 Единица измерения</strong>
+                    <p>{{ product_data.MEASURE }}</p>
                 </div>
                 {% endif %}
 
             {% else %}
                 <div class="product-info">
                     <strong>Статус</strong>
-                    Информация о товаре недоступна
+                    <p>Информация о товаре недоступна</p>
                 </div>
             {% endif %}
         </div>
@@ -70,6 +94,7 @@
         <div class="footer">
             <small>
                 Все права защищены<br>
+                <span style="font-size: 10px; color: #999;">ID: {{ qr_link.id }}</span>
             </small>
         </div>
     </div>

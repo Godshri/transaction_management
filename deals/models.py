@@ -22,6 +22,7 @@ class ProductQRLink(models.Model):
     product_id = models.IntegerField()
     product_name = models.CharField(max_length=255)
     product_data = models.JSONField(null=True, blank=True)
+    product_images = models.JSONField(null=True, blank=True)  # Новое поле для хранения изображений
     created_by = models.ForeignKey(BitrixUser, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
