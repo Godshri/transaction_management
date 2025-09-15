@@ -640,43 +640,6 @@ textarea {
     }
 }
 
- .product-images {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
-    margin: 20px 0;
-}
-
-.product-image {
-    max-width: 300px;
-    max-height: 300px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    object-fit: contain;
-}
-
-@media (max-width: 768px) {
-    .product-image {
-        max-width: 100%;
-        height: auto;
-    }
-
-    .product-images {
-        flex-direction: column;
-    }
-}
-
- .image-placeholder {
-     width: 200px;
-     height: 200px;
-     background: #f0f0f0;
-     display: flex;
-     align-items: center;
-     justify-content: center;
-     border-radius: 8px;
-     color: #666;
- }
-
 /* Animations */
 @keyframes fadeIn {
     from {

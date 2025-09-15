@@ -45,19 +45,6 @@
                 </div>
                 {% endif %}
 
-                <!-- Блок с изображениями -->
-                {% if product_data.IMAGES %}
-                <div class="section-title">Изображения товара</div>
-                <div class="product-images">
-                    {% for image_id in product_data.IMAGES %}
-                        <img src="{% url 'product_image_proxy' uuid=qr_link.id image_index=forloop.counter0 %}"
-                             alt="Изображение товара {{ qr_link.product_name }}"
-                             class="product-image"
-                             onerror="this.style.display='none'">
-                    {% endfor %}
-                </div>
-                {% endif %}
-
                 {% if product_data.CURRENCY_ID %}
                 <div class="product-info">
                     <strong>Валюта</strong>

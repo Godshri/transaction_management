@@ -149,17 +149,6 @@ def generate_qr(request):
             product = product_result['result']
             product_name = product.get('NAME', 'Неизвестный товар')
 
-            # Получаем изображения товара (правильный способ для CRM)
-            images = []
-            image_fields = ['PREVIEW_PICTURE', 'DETAIL_PICTURE']
-
-            for field in image_fields:
-                if product.get(field):
-                    image_data = product[field]
-                    if isinstance(image_data, dict) and 'id' in image_data:
-                        images.append(image_data['id'])
-                    elif isinstance(image_data, (int, str)):
-                        images.append(str(image_data))
 
             # Сохраняем данные товара
             product_data = {
@@ -169,7 +158,6 @@ def generate_qr(request):
                 'CURRENCY_ID': product.get('CURRENCY_ID'),
                 'MEASURE': product.get('MEASURE'),
                 'SECTION_ID': product.get('SECTION_ID'),
-                'IMAGES': images  # Сохраняем ID изображений
             }
 
             # Создаем секретную ссылку с сохраненными данными
@@ -264,52 +252,3 @@ def search_products(request):
         return JsonResponse({'results': []})
 
 
-
-
-@main_auth(on_cookies=True)
-def product_image_proxy(request, uuid, image_index):
-    """Прокси для изображений товара с аутентификацией"""
-    try:
-        qr_link = get_object_or_404(ProductQRLink, id=uuid, is_active=True)
-        product_data = qr_link.product_data or {}
-
-        images = product_data.get('IMAGES', [])
-        if not images or image_index >= len(images):
-            return HttpResponse(status=404)
-
-        image_id = images[image_index]
-
-        # Используем токен текущего пользователя
-        token = request.bitrix_user_token
-
-        # Получаем информацию о файле
-        file_result = token.call_api_method('disk.file.get', {
-            'id': image_id
-        })
-
-        if 'result' not in file_result:
-            return HttpResponse(status=404)
-
-        file_data = file_result['result']
-        download_url = file_data.get('DOWNLOAD_URL')
-
-        if not download_url:
-            return HttpResponse(status=404)
-
-        # Скачиваем изображение
-        response = requests.get(download_url, stream=True, timeout=30)
-
-        if response.status_code == 200:
-            # Возвращаем изображение с правильными заголовками
-            django_response = HttpResponse(
-                response.content,
-                content_type=response.headers.get('Content-Type', 'image/jpeg')
-            )
-            django_response['Cache-Control'] = 'max-age=3600'  # Кэшируем на 1 час
-            return django_response
-        else:
-            return HttpResponse(status=404)
-
-    except Exception as e:
-        print(f"Error proxying image: {e}")
-        return HttpResponse(status=500)
