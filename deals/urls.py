@@ -11,6 +11,7 @@ urlpatterns = [
     path('generate-qr/', views.generate_qr, name='generate_qr'),
     path('product/<uuid:uuid>/', views.product_qr_detail, name='product_qr_detail'),
     path('api/search-products/', views.search_products, name='search_products'),
+    path('api/product-details/', views.get_product_details, name='get_product_details'),
 ]
 
 # Для обслуживания медиафайлов в разработке

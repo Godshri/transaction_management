@@ -1,5 +1,6 @@
 {% extends 'deals/base.html' %}
 {% load static %}
+{% load custom_filters %}
 
 {% block content %}
 <h1>Генерация QR-кода для товара</h1>
@@ -27,10 +28,15 @@
 
     <div class="field-group">
         <label>Информация о товаре</label>
-        <div id="product-info" class="product-info">
+        <div id="product-info" class="product-info" style="display: none;">
             <h4 id="product-name">Название товара</h4>
             <p id="product-price">Цена: <span id="price-value">0</span> ₽</p>
-            <p id="product-description">Описание: <span id="description-value">Не указано</span></p>
+            <p id="product-description">
+                Описание:
+                <span id="short-description"></span>
+                <span id="full-description" style="display: none;"></span>
+                <span id="read-more-toggle" class="read-more-toggle" style="display: none;">читать дальше</span>
+            </p>
             <div id="product-image-preview" style="display: none; margin-top: 10px;">
                 <img id="preview-image" src="" alt="Превью товара" style="max-width: 200px; max-height: 200px;">
             </div>
@@ -51,11 +57,94 @@ document.addEventListener('DOMContentLoaded', function() {
     const productInfo = document.getElementById('product-info');
     const productName = document.getElementById('product-name');
     const priceValue = document.getElementById('price-value');
-    const descriptionValue = document.getElementById('description-value');
+    const shortDescription = document.getElementById('short-description');
+    const fullDescription = document.getElementById('full-description');
+    const readMoreToggle = document.getElementById('read-more-toggle');
     const productImagePreview = document.getElementById('product-image-preview');
     const previewImage = document.getElementById('preview-image');
 
     let timeout = null;
+
+    // Функция для обработки описания (удаление HTML тегов и ограничение слов)
+    function processDescription(text) {
+        if (!text) return { short: 'Не указано', full: 'Не указано', hasMore: false };
+
+        // Удаляем HTML теги
+        const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+        // Разделяем на слова
+        const words = cleanText.split(' ');
+
+        if (words.length <= 10) {
+            return { short: cleanText, full: cleanText, hasMore: false };
+        }
+
+        // Берем первые 10 слов
+        const shortText = words.slice(0, 10).join(' ') + '...';
+        const fullText = cleanText;
+
+        return { short: shortText, full: fullText, hasMore: true };
+    }
+
+    // Обработчик для переключения "читать дальше"
+    readMoreToggle.addEventListener('click', function() {
+        if (shortDescription.style.display === 'none') {
+            shortDescription.style.display = 'inline';
+            fullDescription.style.display = 'none';
+            readMoreToggle.textContent = 'читать дальше';
+        } else {
+            shortDescription.style.display = 'none';
+            fullDescription.style.display = 'inline';
+            readMoreToggle.textContent = 'свернуть';
+        }
+    });
+
+    // Функция для загрузки полной информации о товаре
+    function loadProductDetails(productId) {
+        fetch(`/api/product-details/?id=${productId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.product) {
+                    const product = data.product;
+
+                    // Обновляем информацию о товаре
+                    productName.textContent = product.name || 'Неизвестный товар';
+                    priceValue.textContent = product.price || '0';
+
+                    // Обрабатываем описание
+                    const description = processDescription(product.description);
+                    shortDescription.textContent = description.short;
+                    fullDescription.textContent = description.full;
+
+                    if (description.hasMore) {
+                        readMoreToggle.style.display = 'inline';
+                    } else {
+                        readMoreToggle.style.display = 'none';
+                    }
+
+                    // Показываем превью изображения
+                    if (product.image) {
+                        previewImage.src = product.image;
+                        productImagePreview.style.display = 'block';
+                    } else {
+                        productImagePreview.style.display = 'none';
+                    }
+
+                    productInfo.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading product details:', error);
+                // Показываем базовую информацию
+                productName.textContent = `Товар ID: ${productId}`;
+                priceValue.textContent = 'Информация недоступна';
+                shortDescription.textContent = 'Не указано';
+                fullDescription.textContent = 'Не указано';
+                readMoreToggle.style.display = 'none';
+                productImagePreview.style.display = 'none';
+                productInfo.style.display = 'block';
+            });
+    }
 
     // Поиск товаров при вводе
     searchInput.addEventListener('input', function() {
@@ -76,7 +165,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         data.results.forEach(product => {
                             const li = document.createElement('li');
                             li.innerHTML = `
-                                <div style="display: flex; align-items: center; gap: 10px;">
+                                <div style="display: flex; align-items: center; gap: 10px; padding: 8px;">
                                     ${product.image ? `<img src="https://b24-oyi9l4.bitrix24.ru${product.image}"
                                         alt="${product.name}"
                                         style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px;"
@@ -93,19 +182,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 searchInput.value = product.name;
                                 resultsContainer.style.display = 'none';
 
-                                // Показываем информацию о товаре
-                                productName.textContent = product.name;
-                                priceValue.textContent = product.price;
-
-                                // Показываем превью изображения
-                                if (product.image) {
-                                    previewImage.src = 'https://b24-oyi9l4.bitrix24.ru' + product.image;
-                                    productImagePreview.style.display = 'block';
-                                } else {
-                                    productImagePreview.style.display = 'none';
-                                }
-
-                                productInfo.style.display = 'block';
+                                // Загружаем полную информацию о товаре
+                                loadProductDetails(product.id);
                             });
 
                             resultsList.appendChild(li);
@@ -129,14 +207,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Получение информации о товаре по ID
+    // Получение информации о товаре по ID при ручном вводе
     productIdInput.addEventListener('blur', function() {
         const productId = this.value.trim();
         if (productId) {
-            productName.textContent = `Товар ID: ${productId}`;
-            priceValue.textContent = 'Информация будет загружена';
-            productImagePreview.style.display = 'none';
-            productInfo.style.display = 'block';
+            loadProductDetails(productId);
         }
     });
 });

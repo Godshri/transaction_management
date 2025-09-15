@@ -336,3 +336,48 @@ def search_products(request):
 
     except Exception as e:
         return JsonResponse({'results': []})
+
+
+@main_auth(on_cookies=True)
+def get_product_details(request):
+    """Получение полной информации о товаре"""
+    try:
+        product_id = request.GET.get('id')
+        if not product_id:
+            return JsonResponse({'success': False, 'error': 'ID товара не указан'})
+
+        token = request.bitrix_user_token
+
+        # Получаем полную информацию о товаре
+        product_result = token.call_api_method('crm.product.get', {
+            'id': int(product_id)
+        })
+
+        if 'result' not in product_result:
+            return JsonResponse({'success': False, 'error': 'Товар не найден'})
+
+        product = product_result['result']
+
+        # Обрабатываем изображение
+        image_url = None
+        if product.get('PREVIEW_PICTURE'):
+            image_data = product['PREVIEW_PICTURE']
+            if isinstance(image_data, dict) and 'downloadUrl' in image_data:
+                image_url = image_data['downloadUrl']
+                if not image_url.startswith(('http://', 'https://')):
+                    image_url = f"https://b24-oyi9l4.bitrix24.ru{image_url}"
+
+        return JsonResponse({
+            'success': True,
+            'product': {
+                'id': product.get('ID'),
+                'name': product.get('NAME', 'Неизвестный товар'),
+                'price': product.get('PRICE', 0),
+                'description': product.get('DESCRIPTION') or product.get('PREVIEW_TEXT') or product.get(
+                    'DETAIL_TEXT') or 'Не указано',
+                'image': image_url
+            }
+        })
+
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})

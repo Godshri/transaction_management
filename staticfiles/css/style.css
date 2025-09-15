@@ -738,3 +738,14 @@ textarea {
     line-height: 1.6;
     color: #444;
 }
+
+.read-more-toggle {
+    color: #007bff;
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 14px;
+    margin-left: 5px;
+}
+.read-more-toggle:hover {
+    color: #0056b3;
+}
