@@ -9,5 +9,4 @@ urlpatterns = [
     path('generate-qr/', views.generate_qr, name='generate_qr'),
     path('product/<uuid:uuid>/', views.product_qr_detail, name='product_qr_detail'),
     path('api/search-products/', views.search_products, name='search_products'),
-    path('product-image/<uuid:uuid>/<int:image_index>/', views.product_image_proxy, name='product_image_proxy'),
 ]
