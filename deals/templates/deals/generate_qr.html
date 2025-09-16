@@ -69,24 +69,20 @@ document.addEventListener('DOMContentLoaded', function() {
     function processDescription(text) {
         if (!text) return { short: 'Не указано', full: 'Не указано', hasMore: false };
 
-        // Удаляем HTML теги
         const cleanText = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
-        // Разделяем на слова
         const words = cleanText.split(' ');
 
         if (words.length <= 10) {
             return { short: cleanText, full: cleanText, hasMore: false };
         }
 
-        // Берем первые 10 слов
         const shortText = words.slice(0, 10).join(' ') + '...';
         const fullText = cleanText;
 
         return { short: shortText, full: fullText, hasMore: true };
     }
 
-    // Обработчик для переключения "читать дальше"
     readMoreToggle.addEventListener('click', function() {
         if (shortDescription.style.display === 'none') {
             shortDescription.style.display = 'inline';
@@ -107,11 +103,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (data.success && data.product) {
                     const product = data.product;
 
-                    // Обновляем информацию о товаре
                     productName.textContent = product.name || 'Неизвестный товар';
                     priceValue.textContent = product.price || '0';
 
-                    // Обрабатываем описание
                     const description = processDescription(product.description);
                     shortDescription.textContent = description.short;
                     fullDescription.textContent = description.full;
@@ -121,15 +115,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     } else {
                         readMoreToggle.style.display = 'none';
                     }
-
-                    // Показываем превью изображения
-                    if (product.image) {
-                        previewImage.src = product.image;
-                        productImagePreview.style.display = 'block';
-                    } else {
-                        productImagePreview.style.display = 'none';
-                    }
-
                     productInfo.style.display = 'block';
                 }
             })

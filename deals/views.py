@@ -139,7 +139,6 @@ def generate_qr(request):
 
             token = request.bitrix_user_token
 
-            # Получаем информацию о товаре
             product_result = token.call_api_method('crm.product.get', {
                 'id': product_id_int
             })
@@ -150,20 +149,18 @@ def generate_qr(request):
             product = product_result['result']
             product_name = product.get('NAME', 'Неизвестный товар')
 
-            # Обрабатываем изображения товара
             images = []
 
-            # Обрабатываем поле PROPERTY_44 (основные изображения)
             property_44 = product.get('PROPERTY_44')
             if property_44 and isinstance(property_44, list):
                 for i, img_data in enumerate(property_44):
                     if isinstance(img_data, dict) and 'value' in img_data:
                         value_data = img_data['value']
                         if isinstance(value_data, dict):
-                            # Используем downloadUrl - он содержит правильную ссылку
+
                             download_url = value_data.get('downloadUrl')
                             if download_url:
-                                # Преобразуем относительный URL в абсолютный
+
                                 if not download_url.startswith(('http://', 'https://')):
                                     download_url = f"https://b24-oyi9l4.bitrix24.ru{download_url}"
 
@@ -173,12 +170,12 @@ def generate_qr(request):
                                     'title': f'Изображение {i + 1}'
                                 })
 
-            # Также проверяем другие возможные поля с изображениями
+
             other_image_fields = ['PREVIEW_PICTURE', 'DETAIL_PICTURE', 'MORE_PHOTO']
             for field in other_image_fields:
                 field_value = product.get(field)
                 if field_value:
-                    # Аналогичная обработка для других полей
+
                     if isinstance(field_value, list):
                         for i, img_data in enumerate(field_value):
                             if isinstance(img_data, dict) and 'downloadUrl' in img_data:
@@ -193,7 +190,7 @@ def generate_qr(request):
                                         'title': f'{field} {i + 1}'
                                     })
                     elif isinstance(field_value, dict) and 'downloadUrl' in field_value:
-                        # Одиночное изображение
+
                         download_url = field_value.get('downloadUrl')
                         if download_url:
                             if not download_url.startswith(('http://', 'https://')):
@@ -205,7 +202,6 @@ def generate_qr(request):
                                 'title': field.replace('_', ' ').title()
                             })
 
-            # Сохраняем данные товара
             product_data = {
                 'NAME': product_name,
                 'PRICE': product.get('PRICE'),
@@ -262,20 +258,15 @@ def product_qr_detail(request, uuid):
         product_data = qr_link.product_data or {}
         product_images = qr_link.product_images or []
 
-        # Функция для преобразования ID изображения в URL
         def get_image_url(image_id):
             if not image_id:
                 return None
-            # Преобразуем ID в URL для изображения Битрикс24
             return f"https://b24-oyi9l4.bitrix24.ru/bitrix/components/bitrix/main.show/templates/.default/images/no_photo.png?{image_id}"
 
-        # Преобразуем ID изображений в абсолютные URL
         for img in product_images:
             if 'src' in img and img['src']:
-                # Если это уже URL, оставляем как есть
                 if isinstance(img['src'], str) and img['src'].startswith(('http://', 'https://')):
                     continue
-                # Если это ID изображения, преобразуем в URL
                 img['src'] = get_image_url(img['src'])
 
         return render(request, 'deals/product_detail.html', {
@@ -301,7 +292,6 @@ def search_products(request):
 
         token = request.bitrix_user_token
 
-        # Ищем товары по названию с получением поля PROPERTY_44
         products_result = token.call_api_method('crm.product.list', {
             'filter': {'%NAME': query},
             'select': ['ID', 'NAME', 'PRICE', 'DESCRIPTION', 'PREVIEW_PICTURE', 'PROPERTY_44'],
@@ -313,7 +303,6 @@ def search_products(request):
 
         results = []
         for product in products[:10]:
-            # Получаем первое изображение из PROPERTY_44 если есть
             main_image = None
             if product.get('PREVIEW_PICTURE'):
                 main_image = product.get('PREVIEW_PICTURE')
@@ -348,7 +337,6 @@ def get_product_details(request):
 
         token = request.bitrix_user_token
 
-        # Получаем полную информацию о товаре
         product_result = token.call_api_method('crm.product.get', {
             'id': int(product_id)
         })
@@ -358,7 +346,6 @@ def get_product_details(request):
 
         product = product_result['result']
 
-        # Обрабатываем изображение
         image_url = None
         if product.get('PREVIEW_PICTURE'):
             image_data = product['PREVIEW_PICTURE']
