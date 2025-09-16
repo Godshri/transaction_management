@@ -13,7 +13,3 @@ urlpatterns = [
     path('api/search-products/', views.search_products, name='search_products'),
     path('api/product-details/', views.get_product_details, name='get_product_details'),
 ]
-
-# Для обслуживания медиафайлов в разработке
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
