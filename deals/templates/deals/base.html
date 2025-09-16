@@ -20,11 +20,12 @@
                 {% endif %}
             </div>
 
-            <nav class="nav-menu">
+           <nav class="nav-menu">
                 <a href="{% url 'index' %}" {% if request.path == '/' or request.path == '/home/' %}class="active"{% endif %}>Главная</a>
                 <a href="{% url 'deals' %}" {% if request.path == '/deals/' %}class="active"{% endif %}>Мои сделки</a>
                 <a href="{% url 'create_deal' %}" {% if request.path == '/create-deal/' %}class="active"{% endif %}>Создать сделку</a>
                 <a href="{% url 'generate_qr' %}" {% if request.path == '/generate-qr/' %}class="active"{% endif %}>QR-коды</a>
+                <a href="{% url 'employees_table' %}" {% if request.path == '/employees/' %}class="active"{% endif %}>Сотрудники</a>
             </nav>
         </header>
 

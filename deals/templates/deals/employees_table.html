@@ -1,0 +1,135 @@
+{% extends 'deals/base.html' %}
+{% load static %}
+
+{% block content %}
+<h1>Таблица сотрудников</h1>
+
+<div class="controls">
+    <button id="generate-test-calls" class="btn btn-primary">
+        Сгенерировать тестовые звонки
+    </button>
+    <span id="generate-status" style="margin-left: 10px;"></span>
+</div>
+
+<div class="table-container">
+    <table class="employees-table">
+        <thead>
+            <tr>
+                <th>Сотрудник</th>
+                <th>Должность</th>
+                <th>Руководители</th>
+                <th>Звонков (24ч)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for employee in employees %}
+            <tr>
+                <td>
+                    <a href="#" class="employee-link" data-user-id="{{ employee.id }}">
+                        {{ employee.name }}
+                    </a>
+                </td>
+                <td>{{ employee.position|default:"Не указана" }}</td>
+                <td>
+                    {% if employee.managers %}
+                        {% for manager in employee.managers %}
+                            <a href="#" class="manager-link" data-user-id="{{ manager.id }}">
+                                {{ manager.name }}{% if not forloop.last %}, {% endif %}
+                            </a>
+                        {% endfor %}
+                    {% else %}
+                        <span class="no-managers">Нет руководителей</span>
+                    {% endif %}
+                </td>
+                <td class="call-count">{{ employee.call_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script src="https://api.bitrix24.com/api/v1/"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Инициализация BX24
+    if (typeof BX24 !== 'undefined') {
+        BX24.init(function() {
+            console.log('BX24 SDK инициализирован');
+        });
+    }
+
+    // Обработка кликов по сотрудникам и руководителям
+    document.querySelectorAll('.employee-link, .manager-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const userId = this.getAttribute('data-user-id');
+            openUserProfile(userId);
+        });
+    });
+
+    // Генерация тестовых звонков
+    document.getElementById('generate-test-calls').addEventListener('click', function() {
+        const button = this;
+        const status = document.getElementById('generate-status');
+
+        button.disabled = true;
+        status.textContent = 'Генерация тестовых данных...';
+
+        fetch('{% url "generate_test_calls" %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                status.textContent = data.message;
+                // Обновляем страницу через 2 секунды
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                status.textContent = 'Ошибка: ' + data.error;
+            }
+        })
+        .catch(error => {
+            status.textContent = 'Ошибка сети';
+            console.error('Error:', error);
+        })
+        .finally(() => {
+            button.disabled = false;
+        });
+    });
+
+    // Функция для открытия профиля пользователя
+    function openUserProfile(userId) {
+        if (typeof BX24 !== 'undefined' && BX24.openPath) {
+            BX24.openPath(`/company/personal/user/${userId}/`);
+        } else {
+            // Fallback: открываем в новой вкладке
+            window.open(`/company/personal/user/${userId}/`, '_blank');
+        }
+    }
+
+    // Вспомогательная функция для получения CSRF токена
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+});
+</script>
+
+{% endblock %}

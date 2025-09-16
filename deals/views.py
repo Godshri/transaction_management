@@ -1,3 +1,5 @@
+from linecache import cache
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
@@ -15,6 +17,8 @@ import base64
 import json
 from urllib.parse import urljoin
 import requests
+import random
+from datetime import datetime, timedelta
 
 
 @csrf_exempt
@@ -368,3 +372,240 @@ def get_product_details(request):
 
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
+
+
+@main_auth(on_cookies=True)
+def employees_table(request):
+    """Таблица сотрудников с руководителями и статистикой звонков"""
+    try:
+        token = request.bitrix_user_token
+
+        # Получаем всех активных пользователей с полной информацией
+        users_result = token.call_api_method('user.get', {
+            'filter': {'ACTIVE': True},
+            'select': ['ID', 'NAME', 'LAST_NAME', 'SECOND_NAME', 'UF_DEPARTMENT', 'WORK_POSITION', 'UF_HEAD']
+        })
+
+        active_users = users_result.get('result', [])
+
+        # Получаем структуру департаментов
+        departments_result = token.call_api_method('department.get', {})
+        departments = {dept['ID']: dept for dept in departments_result.get('result', [])}
+
+        # Получаем статистику звонков за последние 24 часа
+        call_stats = get_call_statistics(token)
+
+        # Формируем данные для таблицы
+        employees_data = []
+        for user in active_users:
+            user_id = user['ID']
+            full_name = f"{user.get('LAST_NAME', '')} {user.get('NAME', '')} {user.get('SECOND_NAME', '')}".strip()
+
+            # Получаем цепочку руководителей (исправленная версия)
+            managers = get_manager_chain(user, departments, active_users)
+
+            # Получаем количество звонков
+            call_count = call_stats.get(str(user_id), 0)
+
+            employees_data.append({
+                'id': user_id,
+                'name': full_name,
+                'position': user.get('WORK_POSITION', ''),
+                'managers': managers,
+                'call_count': call_count
+            })
+
+        return render(request, 'deals/employees_table.html', {
+            'employees': employees_data,
+            'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email
+        })
+
+    except Exception as e:
+        return HttpResponse(f"Ошибка при получении данных сотрудников: {str(e)}", status=500)
+
+
+def get_manager_chain(user, departments, all_users):
+    """Получает цепочку руководителей (исправленная версия)"""
+    managers = []
+    current_user = user
+    processed_users = set()  # Для избежания циклов
+    max_depth = 10
+    depth = 0
+
+    while depth < max_depth:
+        user_id = str(current_user['ID'])
+
+        # Проверяем, не обрабатывали ли уже этого пользователя
+        if user_id in processed_users:
+            break
+        processed_users.add(user_id)
+
+        # 1. Проверяем прямого руководителя (UF_HEAD)
+        head_id = current_user.get('UF_HEAD')
+        if head_id:
+            head_user = next((u for u in all_users if str(u['ID']) == str(head_id)), None)
+            if head_user:
+                head_name = f"{head_user.get('LAST_NAME', '')} {head_user.get('NAME', '')}".strip()
+                if head_name:  # Добавляем только если есть имя
+                    # Проверяем, не добавляли ли уже этого руководителя
+                    if not any(m['id'] == head_id for m in managers):
+                        managers.append({
+                            'id': head_id,
+                            'name': head_name
+                        })
+                current_user = head_user
+                depth += 1
+                continue
+
+        # 2. Проверяем руководителей через департаменты
+        user_departments = current_user.get('UF_DEPARTMENT', [])
+        if not user_departments:
+            break
+
+        dept_found = False
+        for dept_id in user_departments:
+            department = departments.get(str(dept_id))
+            if not department:
+                continue
+
+            dept_head_id = department.get('UF_HEAD')
+            if dept_head_id and str(dept_head_id) != str(current_user['ID']):
+                head_user = next((u for u in all_users if str(u['ID']) == str(dept_head_id)), None)
+                if head_user:
+                    head_name = f"{head_user.get('LAST_NAME', '')} {head_user.get('NAME', '')}".strip()
+                    if head_name:
+                        # Проверяем, не добавляли ли уже этого руководителя
+                        if not any(m['id'] == dept_head_id for m in managers):
+                            managers.append({
+                                'id': dept_head_id,
+                                'name': head_name
+                            })
+                    current_user = head_user
+                    dept_found = True
+                    depth += 1
+                    break
+
+        if not dept_found:
+            break
+
+    return managers
+
+
+def get_call_statistics(token):
+    """Получает статистику звонков через метод voximplant.statistic.get"""
+    try:
+        # Проверяем тестовые данные
+        from django.core.cache import cache
+        test_data = cache.get('test_call_stats')
+        if test_data:
+            return test_data
+
+        end_date = datetime.now()
+        start_date = end_date - timedelta(hours=24)
+
+        call_stats = {}
+
+        # Пробуем получить через voximplant
+        voximplant_calls = get_voximplant_statistics(token, start_date, end_date)
+
+        if voximplant_calls:
+            # Обрабатываем данные voximplant
+            for call in voximplant_calls:
+                user_id = call.get('PORTAL_USER_ID')
+                if user_id:
+                    user_id_str = str(user_id)
+                    call_stats[user_id_str] = call_stats.get(user_id_str, 0) + 1
+        else:
+            # Fallback на CRM деятельность
+            activities_result = token.call_api_method('crm.activity.list', {
+                'filter': {
+                    '>=CREATED': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
+                    '<=CREATED': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
+                    'TYPE_ID': 2  # Звонки
+                },
+                'select': ['ID', 'OWNER_ID', 'OWNER_TYPE_ID', 'CREATED']
+            })
+
+            for activity in activities_result.get('result', []):
+                owner_id = activity.get('OWNER_ID')
+                if owner_id:
+                    call_stats[str(owner_id)] = call_stats.get(str(owner_id), 0) + 1
+
+        return call_stats
+
+    except Exception as e:
+        print(f"Общая ошибка при получении статистики звонков: {e}")
+        return {}
+
+
+def generate_test_call_data():
+    """Генерирует тестовые данные о звонках"""
+    # Для демонстрации создаем случайные данные
+    import random
+    return {str(i): random.randint(0, 10) for i in range(1, 20)}
+
+
+@main_auth(on_cookies=True)
+def generate_test_calls(request):
+    """Генерация тестовых данных о звонках с использованием voximplant API"""
+    try:
+        token = request.bitrix_user_token
+
+        # Получаем активных пользователей
+        users_result = token.call_api_method('user.get', {
+            'filter': {'ACTIVE': True},
+            'select': ['ID', 'NAME', 'LAST_NAME']
+        })
+
+        users = users_result.get('result', [])
+        if not users:
+            return JsonResponse({'success': False, 'error': 'Нет активных пользователей'})
+
+        created_count = 0
+        test_stats = {}
+
+        # Создаем тестовые записи звонков
+        for user in users:
+            user_id = user['ID']
+            call_count = random.randint(1, 8)  # 1-8 звонков на пользователя
+
+            # Сохраняем количество звонков для статистики
+            test_stats[str(user_id)] = call_count
+            created_count += call_count
+
+        # Сохраняем тестовые данные в кэш (или в сессию)
+        from django.core.cache import cache
+        cache.set('test_call_stats', test_stats, timeout=3600)  # Храним 1 час
+
+        return JsonResponse({
+            'success': True,
+            'message': f'Создано {created_count} тестовых записей о звонках',
+            'calls_created': created_count,
+            'test_data': test_stats
+        })
+
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+def get_voximplant_statistics(token, start_date, end_date):
+    """Специализированная функция для получения статистики через voximplant"""
+    try:
+        voximplant_result = token.call_api_method('voximplant.statistic.get', {
+            'FILTER': {
+                '>=CALL_START_DATE': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
+                '<=CALL_START_DATE': end_date.strftime('%Y-%m-%dT%H:%M:%S')
+            },
+            'SORT': 'CALL_START_DATE',
+            'ORDER': 'DESC'
+        })
+
+        return voximplant_result.get('result', [])
+
+    except Exception as e:
+        # Проверяем, есть ли у пользователя права на доступ к telephony
+        if "access denied" in str(e).lower() or "permission" in str(e).lower():
+            print("У пользователя нет прав доступа к статистике телефонии")
+        else:
+            print(f"Ошибка voximplant API: {e}")
+        return []
