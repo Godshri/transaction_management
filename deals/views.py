@@ -383,14 +383,15 @@ def employees_table(request):
         # Получаем всех активных пользователей с полной информацией
         users_result = token.call_api_method('user.get', {
             'filter': {'ACTIVE': True},
-            'select': ['ID', 'NAME', 'LAST_NAME', 'SECOND_NAME', 'UF_DEPARTMENT', 'WORK_POSITION', 'UF_HEAD']
+            'select': ['ID', 'NAME', 'LAST_NAME', 'SECOND_NAME', 'UF_DEPARTMENT', 'WORK_POSITION', 'UF_HEAD', 'EMAIL'],
+            'order': {'LAST_NAME': 'ASC'}
         })
 
         active_users = users_result.get('result', [])
 
         # Получаем структуру департаментов
         departments_result = token.call_api_method('department.get', {})
-        departments = {dept['ID']: dept for dept in departments_result.get('result', [])}
+        departments = {str(dept['ID']): dept for dept in departments_result.get('result', [])}
 
         # Получаем статистику звонков за последние 24 часа
         call_stats = get_call_statistics(token)
@@ -400,8 +401,10 @@ def employees_table(request):
         for user in active_users:
             user_id = user['ID']
             full_name = f"{user.get('LAST_NAME', '')} {user.get('NAME', '')} {user.get('SECOND_NAME', '')}".strip()
+            if not full_name.strip():
+                full_name = user.get('EMAIL', 'Без имени')
 
-            # Получаем цепочку руководителей (исправленная версия)
+            # Получаем цепочку руководителей
             managers = get_manager_chain(user, departments, active_users)
 
             # Получаем количество звонков
@@ -410,7 +413,7 @@ def employees_table(request):
             employees_data.append({
                 'id': user_id,
                 'name': full_name,
-                'position': user.get('WORK_POSITION', ''),
+                'position': user.get('WORK_POSITION', 'Не указана'),
                 'managers': managers,
                 'call_count': call_count
             })
@@ -425,116 +428,120 @@ def employees_table(request):
 
 
 def get_manager_chain(user, departments, all_users):
-    """Получает цепочку руководителей (исправленная версия)"""
+    """Получает полную цепочку руководителей с учетом иерархии департаментов"""
     managers = []
-    current_user = user
-    processed_users = set()  # Для избежания циклов
-    max_depth = 10
-    depth = 0
+    processed_users = set()
 
-    while depth < max_depth:
-        user_id = str(current_user['ID'])
+    # Создаем словари для быстрого поиска
+    users_by_id = {str(u['ID']): u for u in all_users}
+    departments_by_id = departments
 
-        # Проверяем, не обрабатывали ли уже этого пользователя
-        if user_id in processed_users:
-            break
-        processed_users.add(user_id)
+    # Функция для рекурсивного поиска руководителей в департаментах
+    def find_managers_in_departments(dept_ids, current_managers, depth=0):
+        if depth > 5:  # Защита от бесконечной рекурсии
+            return current_managers
 
-        # 1. Проверяем прямого руководителя (UF_HEAD)
-        head_id = current_user.get('UF_HEAD')
-        if head_id:
-            head_user = next((u for u in all_users if str(u['ID']) == str(head_id)), None)
-            if head_user:
-                head_name = f"{head_user.get('LAST_NAME', '')} {head_user.get('NAME', '')}".strip()
-                if head_name:  # Добавляем только если есть имя
-                    # Проверяем, не добавляли ли уже этого руководителя
-                    if not any(m['id'] == head_id for m in managers):
-                        managers.append({
-                            'id': head_id,
-                            'name': head_name
-                        })
-                current_user = head_user
-                depth += 1
+        for dept_id in dept_ids:
+            dept = departments_by_id.get(str(dept_id))
+            if not dept:
                 continue
 
-        # 2. Проверяем руководителей через департаменты
-        user_departments = current_user.get('UF_DEPARTMENT', [])
-        if not user_departments:
-            break
-
-        dept_found = False
-        for dept_id in user_departments:
-            department = departments.get(str(dept_id))
-            if not department:
-                continue
-
-            dept_head_id = department.get('UF_HEAD')
-            if dept_head_id and str(dept_head_id) != str(current_user['ID']):
-                head_user = next((u for u in all_users if str(u['ID']) == str(dept_head_id)), None)
+            # Руководитель департамента
+            dept_head_id = dept.get('UF_HEAD')
+            if dept_head_id and str(dept_head_id) not in processed_users:
+                head_user = users_by_id.get(str(dept_head_id))
                 if head_user:
                     head_name = f"{head_user.get('LAST_NAME', '')} {head_user.get('NAME', '')}".strip()
-                    if head_name:
-                        # Проверяем, не добавляли ли уже этого руководителя
-                        if not any(m['id'] == dept_head_id for m in managers):
-                            managers.append({
-                                'id': dept_head_id,
-                                'name': head_name
-                            })
-                    current_user = head_user
-                    dept_found = True
-                    depth += 1
-                    break
+                    if head_name and not any(m['id'] == dept_head_id for m in current_managers):
+                        current_managers.append({
+                            'id': dept_head_id,
+                            'name': head_name
+                        })
+                        processed_users.add(str(dept_head_id))
 
-        if not dept_found:
-            break
+                        # Рекурсивно ищем руководителей выше
+                        head_depts = head_user.get('UF_DEPARTMENT', [])
+                        if head_depts:
+                            find_managers_in_departments(head_depts, current_managers, depth + 1)
+
+            # Родительский департамент
+            parent_dept_id = dept.get('PARENT')
+            if parent_dept_id:
+                parent_dept = departments_by_id.get(str(parent_dept_id))
+                if parent_dept:
+                    parent_head_id = parent_dept.get('UF_HEAD')
+                    if parent_head_id and str(parent_head_id) not in processed_users:
+                        parent_head_user = users_by_id.get(str(parent_head_id))
+                        if parent_head_user:
+                            parent_head_name = f"{parent_head_user.get('LAST_NAME', '')} {parent_head_user.get('NAME', '')}".strip()
+                            if parent_head_name and not any(m['id'] == parent_head_id for m in current_managers):
+                                current_managers.append({
+                                    'id': parent_head_id,
+                                    'name': parent_head_name
+                                })
+                                processed_users.add(str(parent_head_id))
+
+        return current_managers
+
+    # 1. Прямой руководитель
+    direct_head_id = user.get('UF_HEAD')
+    if direct_head_id:
+        direct_head_user = users_by_id.get(str(direct_head_id))
+        if direct_head_user:
+            direct_head_name = f"{direct_head_user.get('LAST_NAME', '')} {direct_head_user.get('NAME', '')}".strip()
+            if direct_head_name:
+                managers.append({
+                    'id': direct_head_id,
+                    'name': direct_head_name
+                })
+                processed_users.add(str(direct_head_id))
+
+    # 2. Руководители через департаменты
+    user_departments = user.get('UF_DEPARTMENT', [])
+    if user_departments:
+        managers = find_managers_in_departments(user_departments, managers)
 
     return managers
 
 
 def get_call_statistics(token):
-    """Получает статистику звонков через метод voximplant.statistic.get"""
+    """Получает статистику звонков из реальных данных Битрикс24"""
     try:
-        # Проверяем тестовые данные
-        from django.core.cache import cache
-        test_data = cache.get('test_call_stats')
-        if test_data:
-            return test_data
-
         end_date = datetime.now()
         start_date = end_date - timedelta(hours=24)
 
         call_stats = {}
 
-        # Пробуем получить через voximplant
-        voximplant_calls = get_voximplant_statistics(token, start_date, end_date)
+        # Получаем звонки через CRM деятельность с фильтрацией
+        activities_result = token.call_api_method('crm.activity.list', {
+            'filter': {
+                '>=CREATED': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
+                '<=CREATED': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
+                'TYPE_ID': 2,  # Звонки
+                'DIRECTION': '2'  # Исходящие
+            },
+            'select': ['ID', 'RESPONSIBLE_ID', 'RESULT_DURATION', 'CREATED'],
+            'order': {'CREATED': 'DESC'}
+        })
 
-        if voximplant_calls:
-            # Обрабатываем данные voximplant
-            for call in voximplant_calls:
-                user_id = call.get('PORTAL_USER_ID')
-                if user_id:
-                    user_id_str = str(user_id)
+        # Фильтруем по продолжительности (> 60 секунд)
+        for activity in activities_result.get('result', []):
+            duration = int(activity.get('RESULT_DURATION', 0))
+            if duration > 60:  # Более 1 минуты
+                responsible_id = activity.get('RESPONSIBLE_ID')
+                if responsible_id:
+                    user_id_str = str(responsible_id)
                     call_stats[user_id_str] = call_stats.get(user_id_str, 0) + 1
-        else:
-            # Fallback на CRM деятельность
-            activities_result = token.call_api_method('crm.activity.list', {
-                'filter': {
-                    '>=CREATED': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
-                    '<=CREATED': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
-                    'TYPE_ID': 2  # Звонки
-                },
-                'select': ['ID', 'OWNER_ID', 'OWNER_TYPE_ID', 'CREATED']
-            })
-
-            for activity in activities_result.get('result', []):
-                owner_id = activity.get('OWNER_ID')
-                if owner_id:
-                    call_stats[str(owner_id)] = call_stats.get(str(owner_id), 0) + 1
 
         return call_stats
 
     except Exception as e:
-        print(f"Общая ошибка при получении статистики звонков: {e}")
+        print(f"Ошибка при получении статистики звонков: {e}")
+        # Fallback на тестовые данные из кэша
+        from django.core.cache import cache
+        test_data = cache.get('test_call_stats')
+        if test_data:
+            return test_data
         return {}
 
 
@@ -547,7 +554,7 @@ def generate_test_call_data():
 
 @main_auth(on_cookies=True)
 def generate_test_calls(request):
-    """Генерация тестовых данных о звонках с использованием voximplant API"""
+    """Генерация реальных тестовых данных о звонках в Битрикс24"""
     try:
         token = request.bitrix_user_token
 
@@ -564,18 +571,67 @@ def generate_test_calls(request):
         created_count = 0
         test_stats = {}
 
-        # Создаем тестовые записи звонков
+        # Создаем реальные записи о звонках через API
         for user in users:
             user_id = user['ID']
             call_count = random.randint(1, 8)  # 1-8 звонков на пользователя
 
-            # Сохраняем количество звонков для статистики
-            test_stats[str(user_id)] = call_count
-            created_count += call_count
+            # Создаем звонки для этого пользователя
+            user_calls_created = 0
+            for i in range(call_count):
+                try:
+                    # Случайное время в течение последних 24 часов
+                    call_time = datetime.now() - timedelta(hours=random.randint(0, 23),
+                                                           minutes=random.randint(0, 59))
 
-        # Сохраняем тестовые данные в кэш (или в сессию)
+                    # Создаем запись о звонке
+                    call_result = token.call_api_method('crm.activity.add', {
+                        'fields': {
+                            'TYPE_ID': '2',  # Звонок
+                            'OWNER_TYPE_ID': '2',  # Привязка к сделке (можно изменить)
+                            'OWNER_ID': random.randint(1, 100),  # Случайный ID владельца
+                            'SUBJECT': f'Тестовый звонок {i + 1}',
+                            'DESCRIPTION': f'Автоматически сгенерированный тестовый звонок',
+                            'DIRECTION': '2',  # Исходящий
+                            'RESULT_STATUS': '1',  # Успешный
+                            'RESULT_STREAM': '1',  # Результат достигнут
+                            'RESULT_SOURCE_ID': '1',  # Телефонный звонок
+                            'RESULT_MARK': '1',  # Положительная оценка
+                            'RESULT_VALUE': '100',  # Стоимость
+                            'RESULT_CURRENCY_ID': 'RUB',
+                            'RESULT_SUM': '100',
+                            'RESULT_DURATION': random.randint(65, 300),  # 1-5 минут
+                            'ASSOCIATED_ENTITY_ID': user_id,  # Связанный пользователь
+                            'RESPONSIBLE_ID': user_id,  # Ответственный
+                            'AUTHOR_ID': user_id,  # Автор
+                            'EDITOR_ID': user_id,  # Редактор
+                            'CREATED': call_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                            'LAST_UPDATED': call_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                            'START_TIME': call_time.strftime('%Y-%m-%dT%H:%M:%S'),
+                            'END_TIME': (call_time + timedelta(minutes=random.randint(1, 5))).strftime(
+                                '%Y-%m-%dT%H:%M:%S'),
+                            'DEADLINE': (call_time + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S'),
+                            'SETTINGS': {
+                                'IS_REPEATING': 'N',
+                                'KEEP_REAL_TIME': 'Y'
+                            }
+                        }
+                    })
+
+                    if 'result' in call_result:
+                        user_calls_created += 1
+
+                except Exception as e:
+                    print(f"Ошибка при создании звонка: {e}")
+                    continue
+
+            # Сохраняем количество созданных звонков для статистики
+            test_stats[str(user_id)] = user_calls_created
+            created_count += user_calls_created
+
+        # Сохраняем тестовые данные в кэш
         from django.core.cache import cache
-        cache.set('test_call_stats', test_stats, timeout=3600)  # Храним 1 час
+        cache.set('test_call_stats', test_stats, timeout=3600)
 
         return JsonResponse({
             'success': True,
@@ -587,25 +643,28 @@ def generate_test_calls(request):
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
 
-
 def get_voximplant_statistics(token, start_date, end_date):
-    """Специализированная функция для получения статистики через voximplant"""
+    """Специализированная функция для получения статистики через voximplant с фильтрацией"""
     try:
         voximplant_result = token.call_api_method('voximplant.statistic.get', {
             'FILTER': {
                 '>=CALL_START_DATE': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
-                '<=CALL_START_DATE': end_date.strftime('%Y-%m-%dT%H:%M:%S')
+                '<=CALL_START_DATE': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
+                'CALL_TYPE': 'outgoing'  # Только исходящие звонки
             },
             'SORT': 'CALL_START_DATE',
             'ORDER': 'DESC'
         })
 
-        return voximplant_result.get('result', [])
+        # Фильтруем звонки по продолжительности (> 1 минуты)
+        filtered_calls = []
+        for call in voximplant_result.get('result', []):
+            duration = call.get('CALL_DURATION', 0)
+            if duration > 60:  # Более 1 минуты
+                filtered_calls.append(call)
+
+        return filtered_calls
 
     except Exception as e:
-        # Проверяем, есть ли у пользователя права на доступ к telephony
-        if "access denied" in str(e).lower() or "permission" in str(e).lower():
-            print("У пользователя нет прав доступа к статистике телефонии")
-        else:
-            print(f"Ошибка voximplant API: {e}")
+        print(f"Ошибка voximplant API: {e}")
         return []
