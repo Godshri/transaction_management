@@ -185,13 +185,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 300);
     });
 
-    // Скрываем результаты при клике вне области
-    document.addEventListener('click', function(e) {
-        if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
-            resultsContainer.style.display = 'none';
-        }
-    });
-
     // Получение информации о товаре по ID при ручном вводе
     productIdInput.addEventListener('blur', function() {
         const productId = this.value.trim();
