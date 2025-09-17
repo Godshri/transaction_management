@@ -11,18 +11,17 @@ def generate_phone_number():
 def generate_external_call(but, user_id):
     """Создает тестовый внешний звонок через API телефонии"""
     try:
-        duration = random.randint(65, 300)  # 1-5 минут
+        duration = random.randint(70, 300)
         call_start = timezone.now() - datetime.timedelta(hours=random.randint(0, 23))
 
-        # Создаем звонок с обязательным полем COMMUNICATIONS
         call_result = but.call_api_method('telephony.externalcall.register', {
             'USER_ID': user_id,
             'PHONE_NUMBER': generate_phone_number(),
             'CALL_START_DATE': call_start.isoformat(),
-            'TYPE': 1,  # Исходящий звонок
+            'TYPE': 1,
             'COMMUNICATIONS': [
                 {
-                    'ENTITY_TYPE': 'CONTACT',  # или 'LEAD', 'COMPANY', 'DEAL'
+                    'ENTITY_TYPE': 'CONTACT',
                     'ENTITY_ID': random.randint(1, 100),
                     'TYPE': 'PHONE'
                 }

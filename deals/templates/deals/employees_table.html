@@ -48,6 +48,7 @@
     </table>
 </div>
 
+<!-- Подключаем BX24 JS SDK -->
 <script src="https://api.bitrix24.com/api/v1/"></script>
 
 <script>
@@ -107,7 +108,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Функция для открытия профиля пользователя
     function openUserProfile(userId) {
         if (typeof BX24 !== 'undefined' && BX24.openPath) {
-            BX24.openPath(`/company/personal/user/${userId}/`);
+            // Открываем в слайдере
+            BX24.openPath(`/company/personal/user/${userId}/`, { slide: true });
         } else {
             // Fallback: открываем в новой вкладке
             window.open(`/company/personal/user/${userId}/`, '_blank');
@@ -131,5 +133,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
+
 
 {% endblock %}

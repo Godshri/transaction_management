@@ -1,10 +1,10 @@
 from linecache import cache
-
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse, JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.core.files.base import ContentFile
 from django.conf import settings
+from django.utils import  timezone
 from integration_utils.bitrix24.bitrix_user_auth.main_auth import main_auth
 from integration_utils.bitrix24.bitrix_user_auth.authenticate_on_start_application import \
     authenticate_on_start_application
@@ -18,7 +18,9 @@ import json
 from urllib.parse import urljoin
 import requests
 import random
-from datetime import datetime, timedelta
+from datetime import timedelta
+from . import telephony_utils
+from .telephony_utils import generate_external_call
 
 
 @csrf_exempt
@@ -380,7 +382,7 @@ def employees_table(request):
     try:
         token = request.bitrix_user_token
 
-        # Получаем всех активных пользователей с полной информацией
+        # Получаем всех активных пользователей
         users_result = token.call_api_method('user.get', {
             'filter': {'ACTIVE': True},
             'select': ['ID', 'NAME', 'LAST_NAME', 'SECOND_NAME', 'UF_DEPARTMENT', 'WORK_POSITION', 'UF_HEAD', 'EMAIL'],
@@ -388,18 +390,38 @@ def employees_table(request):
         })
 
         active_users = users_result.get('result', [])
+        if not isinstance(active_users, list):
+            active_users = []
 
         # Получаем структуру департаментов
         departments_result = token.call_api_method('department.get', {})
-        departments = {str(dept['ID']): dept for dept in departments_result.get('result', [])}
+        departments = departments_result.get('result', [])
+        if not isinstance(departments, list):
+            departments = []
 
-        # Получаем статистику звонков за последние 24 часа
+        # Получаем ВСЮ статистику звонков за последние 24 часа
         call_stats = get_call_statistics(token)
+        print(f"Всего получено звонков: {len(call_stats)}")
+
+        # Создаем словарь для быстрого подсчета звонков по пользователям
+        call_count_by_user = {}
+        for call in call_stats:
+            if isinstance(call, dict):
+                user_id = call.get('PORTAL_USER_ID')
+                if user_id:
+                    user_id_str = str(user_id)
+                    call_count_by_user[user_id_str] = call_count_by_user.get(user_id_str, 0) + 1
 
         # Формируем данные для таблицы
         employees_data = []
         for user in active_users:
-            user_id = user['ID']
+            if not isinstance(user, dict):
+                continue
+
+            user_id = user.get('ID')
+            if not user_id:
+                continue
+
             full_name = f"{user.get('LAST_NAME', '')} {user.get('NAME', '')} {user.get('SECOND_NAME', '')}".strip()
             if not full_name.strip():
                 full_name = user.get('EMAIL', 'Без имени')
@@ -407,8 +429,9 @@ def employees_table(request):
             # Получаем цепочку руководителей
             managers = get_manager_chain(user, departments, active_users)
 
-            # Получаем количество звонков
-            call_count = call_stats.get(str(user_id), 0)
+            # Получаем количество звонков из словаря
+            user_id_str = str(user_id)
+            call_count = call_count_by_user.get(user_id_str, 0)
 
             employees_data.append({
                 'id': user_id,
@@ -427,6 +450,7 @@ def employees_table(request):
         return HttpResponse(f"Ошибка при получении данных сотрудников: {str(e)}", status=500)
 
 
+
 def get_manager_chain(user, departments, all_users):
     """Получает полную цепочку руководителей с учетом иерархии департаментов"""
     managers = []
@@ -434,7 +458,7 @@ def get_manager_chain(user, departments, all_users):
 
     # Создаем словари для быстрого поиска
     users_by_id = {str(u['ID']): u for u in all_users}
-    departments_by_id = departments
+    departments_by_id = {str(dept['ID']): dept for dept in departments}
 
     # Функция для рекурсивного поиска руководителей в департаментах
     def find_managers_in_departments(dept_ids, current_managers, depth=0):
@@ -442,7 +466,8 @@ def get_manager_chain(user, departments, all_users):
             return current_managers
 
         for dept_id in dept_ids:
-            dept = departments_by_id.get(str(dept_id))
+            dept_id_str = str(dept_id)
+            dept = departments_by_id.get(dept_id_str)
             if not dept:
                 continue
 
@@ -499,51 +524,58 @@ def get_manager_chain(user, departments, all_users):
     # 2. Руководители через департаменты
     user_departments = user.get('UF_DEPARTMENT', [])
     if user_departments:
+        # Убедимся, что это список ID, а не строки
+        if isinstance(user_departments, str):
+            user_departments = [user_departments]
+        elif not isinstance(user_departments, list):
+            user_departments = []
+
         managers = find_managers_in_departments(user_departments, managers)
 
     return managers
 
 
 def get_call_statistics(token):
-    """Получает статистику звонков из реальных данных Битрикс24"""
+    """Получает ВСЮ статистику звонков через voximplant API с пагинацией"""
     try:
-        end_date = datetime.now()
-        start_date = end_date - timedelta(hours=24)
+        all_calls = []
+        start = 0
+        limit = 50  # Максимальное количество записей за один запрос в Bitrix24
 
-        call_stats = {}
+        # Фильтр для последних 24 часов
+        filter_date = (timezone.now() - timedelta(hours=24)).isoformat()
 
-        # Получаем звонки через CRM деятельность с фильтрацией
-        activities_result = token.call_api_method('crm.activity.list', {
-            'filter': {
-                '>=CREATED': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
-                '<=CREATED': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
-                'TYPE_ID': 2,  # Звонки
-                'DIRECTION': '2'  # Исходящие
-            },
-            'select': ['ID', 'RESPONSIBLE_ID', 'RESULT_DURATION', 'CREATED'],
-            'order': {'CREATED': 'DESC'}
-        })
+        while True:
+            calls_result = token.call_api_method('voximplant.statistic.get', {
+                'FILTER': {
+                    '>CALL_START_DATE': filter_date,
+                    'CALL_TYPE': 1,  # Исходящие звонки
+                    '>CALL_DURATION': 60  # Более 1 минуты
+                },
+                'ORDER': {'CALL_START_DATE': 'DESC'},
+                'start': start
+            })
 
-        # Фильтруем по продолжительности (> 60 секунд)
-        for activity in activities_result.get('result', []):
-            duration = int(activity.get('RESULT_DURATION', 0))
-            if duration > 60:  # Более 1 минуты
-                responsible_id = activity.get('RESPONSIBLE_ID')
-                if responsible_id:
-                    user_id_str = str(responsible_id)
-                    call_stats[user_id_str] = call_stats.get(user_id_str, 0) + 1
+            if not calls_result or 'result' not in calls_result:
+                break
 
-        return call_stats
+            calls = calls_result['result']
+            if not calls or not isinstance(calls, list):
+                break
+
+            all_calls.extend(calls)
+
+            # Если получено меньше записей, чем лимит, значит это последняя страница
+            if len(calls) < limit:
+                break
+
+            start += limit
+
+        return all_calls
 
     except Exception as e:
         print(f"Ошибка при получении статистики звонков: {e}")
-        # Fallback на тестовые данные из кэша
-        from django.core.cache import cache
-        test_data = cache.get('test_call_stats')
-        if test_data:
-            return test_data
-        return {}
-
+        return []
 
 @main_auth(on_cookies=True)
 def generate_test_calls(request):
@@ -564,15 +596,13 @@ def generate_test_calls(request):
         created_count = 0
         test_stats = {}
 
-        # Создаем тестовые звонки для каждого пользователя
         for user in users:
             user_id = user['ID']
-            call_count = random.randint(1, 8)  # 1-8 звонков на пользователя
+            call_count = random.randint(1, 8)
 
             user_calls_created = 0
             for i in range(call_count):
                 try:
-                    # Используем функцию для создания звонка
                     success = generate_external_call(token, user_id)
                     if success:
                         user_calls_created += 1
@@ -581,13 +611,8 @@ def generate_test_calls(request):
                     print(f"Ошибка при создании звонка: {e}")
                     continue
 
-            # Сохраняем статистику
             test_stats[str(user_id)] = user_calls_created
             created_count += user_calls_created
-
-        # Сохраняем тестовые данные в кэш
-        from django.core.cache import cache
-        cache.set('test_call_stats', test_stats, timeout=3600)
 
         return JsonResponse({
             'success': True,
@@ -599,28 +624,28 @@ def generate_test_calls(request):
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
 
-def get_voximplant_statistics(token, start_date, end_date):
-    """Специализированная функция для получения статистики через voximplant с фильтрацией"""
-    try:
-        voximplant_result = token.call_api_method('voximplant.statistic.get', {
-            'FILTER': {
-                '>=CALL_START_DATE': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
-                '<=CALL_START_DATE': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
-                'CALL_TYPE': 'outgoing'  # Только исходящие звонки
-            },
-            'SORT': 'CALL_START_DATE',
-            'ORDER': 'DESC'
-        })
-
-        # Фильтруем звонки по продолжительности (> 1 минуты)
-        filtered_calls = []
-        for call in voximplant_result.get('result', []):
-            duration = call.get('CALL_DURATION', 0)
-            if duration > 60:  # Более 1 минуты
-                filtered_calls.append(call)
-
-        return filtered_calls
-
-    except Exception as e:
-        print(f"Ошибка voximplant API: {e}")
-        return []
+# def get_voximplant_statistics(token, start_date, end_date):
+#     """Специализированная функция для получения статистики через voximplant с фильтрацией"""
+#     try:
+#         voximplant_result = token.call_api_method('voximplant.statistic.get', {
+#             'FILTER': {
+#                 '>=CALL_START_DATE': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
+#                 '<=CALL_START_DATE': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
+#                 'CALL_TYPE': 'outgoing'  # Только исходящие звонки
+#             },
+#             'SORT': 'CALL_START_DATE',
+#             'ORDER': 'DESC'
+#         })
+#
+#         # Фильтруем звонки по продолжительности (> 1 минуты)
+#         filtered_calls = []
+#         for call in voximplant_result.get('result', []):
+#             duration = call.get('CALL_DURATION', 0)
+#             if duration > 60:  # Более 1 минуты
+#                 filtered_calls.append(call)
+#
+#         return filtered_calls
+#
+#     except Exception as e:
+#         print(f"Ошибка voximplant API: {e}")
+#         return []

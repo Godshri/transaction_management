@@ -843,3 +843,62 @@ textarea {
     font-weight: bold;
     text-align: center;
 }
+
+
+.employees-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+.employees-table th,
+.employees-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #ddd;
+}
+
+.employees-table th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.employee-link,
+.manager-link {
+    color: #007bff;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.employee-link:hover,
+.manager-link:hover {
+    text-decoration: underline;
+}
+
+.call-count {
+    font-weight: bold;
+    text-align: center;
+}
+
+.controls {
+    margin-bottom: 20px;
+}
+
+.btn {
+    padding: 10px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn:disabled {
+    background-color: #6c757d;
+    cursor: not-allowed;
+}
+
+.no-managers {
+    color: #6c757d;
+    font-style: italic;
+}
