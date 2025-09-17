@@ -545,16 +545,9 @@ def get_call_statistics(token):
         return {}
 
 
-def generate_test_call_data():
-    """Генерирует тестовые данные о звонках"""
-    # Для демонстрации создаем случайные данные
-    import random
-    return {str(i): random.randint(0, 10) for i in range(1, 20)}
-
-
 @main_auth(on_cookies=True)
 def generate_test_calls(request):
-    """Генерация реальных тестовых данных о звонках в Битрикс24"""
+    """Генерация тестовых звонков через API телефонии"""
     try:
         token = request.bitrix_user_token
 
@@ -571,61 +564,24 @@ def generate_test_calls(request):
         created_count = 0
         test_stats = {}
 
-        # Создаем реальные записи о звонках через API
+        # Создаем тестовые звонки для каждого пользователя
         for user in users:
             user_id = user['ID']
             call_count = random.randint(1, 8)  # 1-8 звонков на пользователя
 
-            # Создаем звонки для этого пользователя
             user_calls_created = 0
             for i in range(call_count):
                 try:
-                    # Случайное время в течение последних 24 часов
-                    call_time = datetime.now() - timedelta(hours=random.randint(0, 23),
-                                                           minutes=random.randint(0, 59))
-
-                    # Создаем запись о звонке
-                    call_result = token.call_api_method('crm.activity.add', {
-                        'fields': {
-                            'TYPE_ID': '2',  # Звонок
-                            'OWNER_TYPE_ID': '2',  # Привязка к сделке (можно изменить)
-                            'OWNER_ID': random.randint(1, 100),  # Случайный ID владельца
-                            'SUBJECT': f'Тестовый звонок {i + 1}',
-                            'DESCRIPTION': f'Автоматически сгенерированный тестовый звонок',
-                            'DIRECTION': '2',  # Исходящий
-                            'RESULT_STATUS': '1',  # Успешный
-                            'RESULT_STREAM': '1',  # Результат достигнут
-                            'RESULT_SOURCE_ID': '1',  # Телефонный звонок
-                            'RESULT_MARK': '1',  # Положительная оценка
-                            'RESULT_VALUE': '100',  # Стоимость
-                            'RESULT_CURRENCY_ID': 'RUB',
-                            'RESULT_SUM': '100',
-                            'RESULT_DURATION': random.randint(65, 300),  # 1-5 минут
-                            'ASSOCIATED_ENTITY_ID': user_id,  # Связанный пользователь
-                            'RESPONSIBLE_ID': user_id,  # Ответственный
-                            'AUTHOR_ID': user_id,  # Автор
-                            'EDITOR_ID': user_id,  # Редактор
-                            'CREATED': call_time.strftime('%Y-%m-%dT%H:%M:%S'),
-                            'LAST_UPDATED': call_time.strftime('%Y-%m-%dT%H:%M:%S'),
-                            'START_TIME': call_time.strftime('%Y-%m-%dT%H:%M:%S'),
-                            'END_TIME': (call_time + timedelta(minutes=random.randint(1, 5))).strftime(
-                                '%Y-%m-%dT%H:%M:%S'),
-                            'DEADLINE': (call_time + timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S'),
-                            'SETTINGS': {
-                                'IS_REPEATING': 'N',
-                                'KEEP_REAL_TIME': 'Y'
-                            }
-                        }
-                    })
-
-                    if 'result' in call_result:
+                    # Используем функцию для создания звонка
+                    success = generate_external_call(token, user_id)
+                    if success:
                         user_calls_created += 1
 
                 except Exception as e:
                     print(f"Ошибка при создании звонка: {e}")
                     continue
 
-            # Сохраняем количество созданных звонков для статистики
+            # Сохраняем статистику
             test_stats[str(user_id)] = user_calls_created
             created_count += user_calls_created
 
@@ -635,7 +591,7 @@ def generate_test_calls(request):
 
         return JsonResponse({
             'success': True,
-            'message': f'Создано {created_count} тестовых записей о звонках',
+            'message': f'Создано {created_count} тестовых звонков',
             'calls_created': created_count,
             'test_data': test_stats
         })
