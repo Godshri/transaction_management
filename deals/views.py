@@ -393,17 +393,15 @@ def employees_table(request):
         if not isinstance(active_users, list):
             active_users = []
 
-        # Получаем структуру департаментов
+        # Получаем структуру отделов
         departments_result = token.call_api_method('department.get', {})
         departments = departments_result.get('result', [])
         if not isinstance(departments, list):
             departments = []
 
-        # Получаем ВСЮ статистику звонков за последние 24 часа
+        # Получаем статистику звонков за последние 24 часа
         call_stats = get_call_statistics(token)
-        print(f"Всего получено звонков: {len(call_stats)}")
 
-        # Создаем словарь для быстрого подсчета звонков по пользователям
         call_count_by_user = {}
         for call in call_stats:
             if isinstance(call, dict):
@@ -426,10 +424,8 @@ def employees_table(request):
             if not full_name.strip():
                 full_name = user.get('EMAIL', 'Без имени')
 
-            # Получаем цепочку руководителей
             managers = get_manager_chain(user, departments, active_users)
 
-            # Получаем количество звонков из словаря
             user_id_str = str(user_id)
             call_count = call_count_by_user.get(user_id_str, 0)
 
@@ -450,97 +446,128 @@ def employees_table(request):
         return HttpResponse(f"Ошибка при получении данных сотрудников: {str(e)}", status=500)
 
 
-
 def get_manager_chain(user, departments, all_users):
-    """Получает полную цепочку руководителей с учетом иерархии департаментов"""
+    """Получает цепочку руководителей с учетом иерархии отделов"""
     managers = []
     processed_users = set()
 
-    # Создаем словари для быстрого поиска
+    current_user_id = str(user.get('ID'))
     users_by_id = {str(u['ID']): u for u in all_users}
     departments_by_id = {str(dept['ID']): dept for dept in departments}
-
-    # Функция для рекурсивного поиска руководителей в департаментах
-    def find_managers_in_departments(dept_ids, current_managers, depth=0):
-        if depth > 5:  # Защита от бесконечной рекурсии
-            return current_managers
-
-        for dept_id in dept_ids:
-            dept_id_str = str(dept_id)
-            dept = departments_by_id.get(dept_id_str)
-            if not dept:
-                continue
-
-            # Руководитель департамента
-            dept_head_id = dept.get('UF_HEAD')
-            if dept_head_id and str(dept_head_id) not in processed_users:
-                head_user = users_by_id.get(str(dept_head_id))
-                if head_user:
-                    head_name = f"{head_user.get('LAST_NAME', '')} {head_user.get('NAME', '')}".strip()
-                    if head_name and not any(m['id'] == dept_head_id for m in current_managers):
-                        current_managers.append({
-                            'id': dept_head_id,
-                            'name': head_name
-                        })
-                        processed_users.add(str(dept_head_id))
-
-                        # Рекурсивно ищем руководителей выше
-                        head_depts = head_user.get('UF_DEPARTMENT', [])
-                        if head_depts:
-                            find_managers_in_departments(head_depts, current_managers, depth + 1)
-
-            # Родительский департамент
-            parent_dept_id = dept.get('PARENT')
-            if parent_dept_id:
-                parent_dept = departments_by_id.get(str(parent_dept_id))
-                if parent_dept:
-                    parent_head_id = parent_dept.get('UF_HEAD')
-                    if parent_head_id and str(parent_head_id) not in processed_users:
-                        parent_head_user = users_by_id.get(str(parent_head_id))
-                        if parent_head_user:
-                            parent_head_name = f"{parent_head_user.get('LAST_NAME', '')} {parent_head_user.get('NAME', '')}".strip()
-                            if parent_head_name and not any(m['id'] == parent_head_id for m in current_managers):
-                                current_managers.append({
-                                    'id': parent_head_id,
-                                    'name': parent_head_name
-                                })
-                                processed_users.add(str(parent_head_id))
-
-        return current_managers
 
     # 1. Прямой руководитель
     direct_head_id = user.get('UF_HEAD')
     if direct_head_id:
-        direct_head_user = users_by_id.get(str(direct_head_id))
-        if direct_head_user:
-            direct_head_name = f"{direct_head_user.get('LAST_NAME', '')} {direct_head_user.get('NAME', '')}".strip()
-            if direct_head_name:
-                managers.append({
-                    'id': direct_head_id,
-                    'name': direct_head_name
-                })
-                processed_users.add(str(direct_head_id))
+        direct_head_id_str = str(direct_head_id)
+        if (direct_head_id_str != current_user_id and
+                direct_head_id_str not in processed_users):
 
-    # 2. Руководители через департаменты
-    user_departments = user.get('UF_DEPARTMENT', [])
-    if user_departments:
-        # Убедимся, что это список ID, а не строки
-        if isinstance(user_departments, str):
-            user_departments = [user_departments]
-        elif not isinstance(user_departments, list):
-            user_departments = []
+            direct_head_user = users_by_id.get(direct_head_id_str)
+            if direct_head_user:
+                direct_head_name = get_user_full_name(direct_head_user)
+                if direct_head_name:
+                    managers.append({
+                        'id': direct_head_id,
+                        'name': direct_head_name
+                    })
+                    processed_users.add(direct_head_id_str)
 
-        managers = find_managers_in_departments(user_departments, managers)
+    # 2. Руководители отделов пользователя
+    user_departments = normalize_department_ids(user.get('UF_DEPARTMENT', []))
+
+    for dept_id in user_departments:
+        dept = departments_by_id.get(str(dept_id))
+        if not dept:
+            continue
+
+        # Руководитель текущего отдела
+        dept_head_id = dept.get('UF_HEAD')
+        if dept_head_id:
+            dept_head_id_str = str(dept_head_id)
+            if (dept_head_id_str != current_user_id and
+                    dept_head_id_str not in processed_users):
+
+                dept_head_user = users_by_id.get(dept_head_id_str)
+                if dept_head_user:
+                    dept_head_name = get_user_full_name(dept_head_user)
+                    if dept_head_name:
+                        managers.append({
+                            'id': dept_head_id,
+                            'name': dept_head_name
+                        })
+                        processed_users.add(dept_head_id_str)
+
+        # Руководители родительских отделов (иерархия вверх)
+        parent_dept_id = dept.get('PARENT')
+        while parent_dept_id:
+            parent_dept = departments_by_id.get(str(parent_dept_id))
+            if not parent_dept:
+                break
+
+            parent_head_id = parent_dept.get('UF_HEAD')
+            if parent_head_id:
+                parent_head_id_str = str(parent_head_id)
+                if (parent_head_id_str != current_user_id and
+                        parent_head_id_str not in processed_users):
+
+                    parent_head_user = users_by_id.get(parent_head_id_str)
+                    if parent_head_user:
+                        parent_head_name = get_user_full_name(parent_head_user)
+                        if parent_head_name:
+                            managers.append({
+                                'id': parent_head_id,
+                                'name': parent_head_name
+                            })
+                            processed_users.add(parent_head_id_str)
+
+            # Переходим к следующему родительскому отделу
+            parent_dept_id = parent_dept.get('PARENT')
 
     return managers
 
 
+def get_user_full_name(user_data):
+    """Формирует полное имя пользователя"""
+    last_name = user_data.get('LAST_NAME', '').strip()
+    first_name = user_data.get('NAME', '').strip()
+    middle_name = user_data.get('SECOND_NAME', '').strip()
+
+    full_name = f"{last_name} {first_name} {middle_name}".strip()
+    if not full_name:
+        full_name = user_data.get('EMAIL', 'Без имени')
+
+    return full_name
+
+
+def normalize_department_ids(dept_ids):
+    """Нормализует ID отделов к списку чисел"""
+    if not dept_ids:
+        return []
+
+    if isinstance(dept_ids, str):
+        try:
+            return [int(dept_ids)]
+        except ValueError:
+            return []
+
+    if isinstance(dept_ids, list):
+        normalized = []
+        for dept_id in dept_ids:
+            if isinstance(dept_id, (int, float)):
+                normalized.append(int(dept_id))
+            elif isinstance(dept_id, str) and dept_id.isdigit():
+                normalized.append(int(dept_id))
+        return normalized
+
+    return []
+
+
 def get_call_statistics(token):
-    """Получает ВСЮ статистику звонков через voximplant API с пагинацией"""
+    """Получает статистику звонков через voximplant API с пагинацией"""
     try:
         all_calls = []
         start = 0
-        limit = 50  # Максимальное количество записей за один запрос в Bitrix24
+        limit = 50  # Максимальное количество записей за один запрос
 
         # Фильтр для последних 24 часов
         filter_date = (timezone.now() - timedelta(hours=24)).isoformat()
@@ -623,29 +650,3 @@ def generate_test_calls(request):
 
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
-
-# def get_voximplant_statistics(token, start_date, end_date):
-#     """Специализированная функция для получения статистики через voximplant с фильтрацией"""
-#     try:
-#         voximplant_result = token.call_api_method('voximplant.statistic.get', {
-#             'FILTER': {
-#                 '>=CALL_START_DATE': start_date.strftime('%Y-%m-%dT%H:%M:%S'),
-#                 '<=CALL_START_DATE': end_date.strftime('%Y-%m-%dT%H:%M:%S'),
-#                 'CALL_TYPE': 'outgoing'  # Только исходящие звонки
-#             },
-#             'SORT': 'CALL_START_DATE',
-#             'ORDER': 'DESC'
-#         })
-#
-#         # Фильтруем звонки по продолжительности (> 1 минуты)
-#         filtered_calls = []
-#         for call in voximplant_result.get('result', []):
-#             duration = call.get('CALL_DURATION', 0)
-#             if duration > 60:  # Более 1 минуты
-#                 filtered_calls.append(call)
-#
-#         return filtered_calls
-#
-#     except Exception as e:
-#         print(f"Ошибка voximplant API: {e}")
-#         return []

@@ -33,13 +33,12 @@ def generate_external_call(but, user_id):
             print(f"Не удалось получить CALL_ID: {call_result}")
             return False
 
-        # Завершаем звонок
         finish_result = but.call_api_method('telephony.externalcall.finish', {
             'CALL_ID': call_id,
             'USER_ID': user_id,
             'DURATION': duration,
             'STATUS_CODE': '200',
-            'RECORD_URL': ''  # Можно оставить пустым для тестов
+            'RECORD_URL': ''
         })
 
         return finish_result.get('result', False)
