@@ -14,4 +14,8 @@ urlpatterns = [
     path('api/product-details/', views.get_product_details, name='get_product_details'),
     path('employees/', views.employees_table, name='employees_table'),
     path('api/generate-test-calls/', views.generate_test_calls, name='generate_test_calls'),
+    path('company-map/', views.company_map, name='company_map'),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

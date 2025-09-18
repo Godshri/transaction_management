@@ -18,10 +18,14 @@ import json
 from urllib.parse import urljoin
 import requests
 import random
+import logging
 from datetime import timedelta
 from . import telephony_utils
 from .telephony_utils import generate_external_call
+import os
+from django.core.cache import cache
 
+logger = logging.getLogger(__name__)
 
 @csrf_exempt
 @main_auth(on_start=True, set_cookie=True)
@@ -650,3 +654,180 @@ def generate_test_calls(request):
 
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
+
+
+def get_geocode(address_data):
+    """Получение координат по адресу через Яндекс Геокодер с кэшированием"""
+    try:
+        # Формируем адрес из доступных полей
+        address_parts = [
+            address_data.get('ADDRESS_1'),
+            address_data.get('CITY'),
+            address_data.get('REGION'),
+            address_data.get('PROVINCE'),
+            address_data.get('COUNTRY')
+        ]
+        address = ' '.join(filter(None, address_parts))
+
+        if not address:
+            return None
+
+        # Проверяем кэш
+        cache_key = f'geocode_{hash(address)}'
+        cached_coords = cache.get(cache_key)
+        if cached_coords:
+            return cached_coords
+
+        api_key = os.environ.get('YANDEX_API_KEY', '398bf0ac-876c-44ac-a830-0b7e29f5f4f9')
+
+        response = requests.get(
+            f'https://geocode-maps.yandex.ru/1.x/',
+            params={
+                'apikey': api_key,
+                'geocode': address,
+                'format': 'json'
+            },
+            timeout=10
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        # Извлекаем координаты
+        feature_member = data['response']['GeoObjectCollection']['featureMember']
+        if not feature_member:
+            return None
+
+        pos = feature_member[0]['GeoObject']['Point']['pos']
+        longitude, latitude = map(float, pos.split(' '))
+        coords = [latitude, longitude]
+
+        # Сохраняем в кэш на 30 дней
+        cache.set(cache_key, coords, timeout=60 * 60 * 24 * 30)
+
+        return coords
+
+    except Exception as e:
+        logger.warning(f"Ошибка геокодирования адреса: {e}")
+        return None
+
+
+def get_logo(company):
+    """Получение логотипа компании с кэшированием"""
+    try:
+        logo_data = company.get('LOGO')
+        if not logo_data:
+            return None
+
+        # Проверяем кэш
+        cache_key = f'logo_{company["ID"]}'
+        cached_logo_url = cache.get(cache_key)
+        if cached_logo_url:
+            return cached_logo_url
+
+        bitrix_domain = os.environ.get('BITRIX_DOMAIN', 'b24-oyi9l4.bitrix24.ru')
+        root_url = os.environ.get('ROOT_URL', 'http://localhost:8000')
+
+        download_url = logo_data.get('downloadUrl')
+        if not download_url:
+            return None
+
+        # Формируем полный URL
+        if download_url.startswith(('http://', 'https://')):
+            full_url = download_url
+        else:
+            full_url = f'https://{bitrix_domain}{download_url}'
+
+        # Создаем директорию для логотипов
+        logo_dir = os.path.join(settings.MEDIA_ROOT, 'company_logos')
+        os.makedirs(logo_dir, exist_ok=True)
+
+        # Путь для сохранения файла
+        file_name = f"logo_{company['ID']}.png"
+        file_path = os.path.join(logo_dir, file_name)
+
+        # Если файл уже существует, возвращаем его URL
+        if os.path.exists(file_path):
+            relative_path = os.path.relpath(file_path, settings.MEDIA_ROOT)
+            logo_url = f"{root_url}{settings.MEDIA_URL}{relative_path}".replace('\\', '/')
+            cache.set(cache_key, logo_url, timeout=60 * 60 * 24 * 30)
+            return logo_url
+
+        # Скачиваем логотип
+        response = requests.get(full_url, timeout=10)
+        response.raise_for_status()
+
+        # Сохраняем файл
+        with open(file_path, 'wb') as f:
+            f.write(response.content)
+
+        # Возвращаем URL
+        relative_path = os.path.relpath(file_path, settings.MEDIA_ROOT)
+        logo_url = f"{root_url}{settings.MEDIA_URL}{relative_path}".replace('\\', '/')
+        cache.set(cache_key, logo_url, timeout=60 * 60 * 24 * 30)
+        return logo_url
+
+    except Exception as e:
+        logger.warning(f"Ошибка загрузки логотипа компании {company.get('ID')}: {e}")
+        return None
+
+
+@main_auth(on_cookies=True)
+def company_map(request):
+    """Карта с адресами компаний"""
+    try:
+        but = request.bitrix_user_token
+
+        # Получаем компании с пагинацией
+        companies = but.call_list_method('crm.company.list', {
+            'select': ['ID', 'TITLE', 'LOGO', 'ADDRESS'],
+            'order': {'DATE_CREATE': 'DESC'}
+        })
+
+        companies_dict = {company['ID']: company for company in companies}
+
+        # Получаем адреса компаний
+        addresses = but.call_list_method('crm.address.list', {
+            'filter': {'ENTITY_TYPE_ID': 4},  # 4 - тип сущности "Компания"
+            'select': ['ENTITY_ID', 'ADDRESS_1', 'CITY', 'REGION', 'PROVINCE', 'COUNTRY']
+        })
+
+        points = []
+        geocoded_count = 0
+
+        for address in addresses:
+            company_id = address['ENTITY_ID']
+            company = companies_dict.get(company_id)
+
+            if company:
+                # Получаем координаты
+                geocode = get_geocode(address)
+
+                if geocode:
+                    geocoded_count += 1
+                    # Получаем логотип
+                    logo_url = get_logo(company)
+
+                    point = {
+                        'TITLE': company['TITLE'],
+                        'GEOCODE': geocode,
+                        'LogoURL': logo_url
+                    }
+                    points.append(point)
+
+        logger.info(f"Загружено {len(points)} компаний с координатами из {len(companies)} всего")
+
+        return render(request, 'deals/company_map.html', {
+            'points': points,
+            'error': None,
+            'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email
+        })
+
+    except Exception as e:
+        error_message = f"Ошибка при загрузке карты компаний: {str(e)}"
+        logger.error(error_message)
+        return render(request, 'deals/company_map.html', {
+            'points': [],
+            'error': error_message,
+            'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email
+        })

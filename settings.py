@@ -154,4 +154,9 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.bitrix24.ru',
 ]
 
-BASE_DOMAIN = 'http://localhost:8000'
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
+}
