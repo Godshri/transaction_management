@@ -7,7 +7,7 @@ TINKOFF_API_KEY = 'your-api-key'
 ENDPOINT_TINKOFF = 'your-secret-key'
 API_KEY_TINKOFF = 'your-api-key'
 SECRET_KEY_TINKOFF = 'your-secret-key'
-YANDEX_API_KEY = '221b42f7-a786-407f-9650-803a69dd7ba6'
+YANDEX_MAPS_API_KEY = '221b42f7-a786-407f-9650-803a69dd7ba6'
 OPEN_AI_API_KEY = 'your-api-key'
 
 BITRIX_DOMAIN = 'b24-oyi9l4.bitrix24.ru'

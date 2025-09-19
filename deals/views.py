@@ -820,7 +820,8 @@ def company_map(request):
         return render(request, 'deals/company_map.html', {
             'points': points,
             'error': None,
-            'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email
+            'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email,
+            'yandex_api_key': settings.YANDEX_MAPS_API_KEY  # Передаем ключ в контекст
         })
 
     except Exception as e:
@@ -829,5 +830,6 @@ def company_map(request):
         return render(request, 'deals/company_map.html', {
             'points': [],
             'error': error_message,
-            'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email
+            'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email,
+            'yandex_api_key': settings.YANDEX_MAPS_API_KEY
         })
