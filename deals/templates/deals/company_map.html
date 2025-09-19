@@ -92,6 +92,30 @@
             margin: 20px 0;
             border: 1px solid #c3e6cb;
         }
+                .company-balloon {
+            padding: 10px;
+            max-width: 250px;
+        }
+
+        .company-name {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .company-logo {
+            max-width: 100px;
+            max-height: 60px;
+            margin: 8px 0;
+            object-fit: contain;
+            border-radius: 4px;
+        }
+
+        /* Стили для кастомных меток */
+        .ymaps-2-1-79-image-with-content {
+            background: transparent !important;
+        }
     </style>
 {% endblock %}
 
@@ -135,7 +159,7 @@
     function init() {
         // Создаем карту
         var map = new ymaps.Map('map', {
-            center: [55.76, 37.64], // Москва по умолчанию
+            center: [55.76, 37.64],
             zoom: 10,
             controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
         });
@@ -156,61 +180,63 @@
             return;
         }
 
-        // Создаем коллекцию меток
-        var objectManager = new ymaps.ObjectManager({
+        // Создаем коллекцию Placemark вместо ObjectManager для кастомных иконок
+        var objectCollection = new ymaps.GeoObjectCollection(null, {
+            preset: 'islands#blueIcon',
             clusterize: true,
             gridSize: 64,
-            clusterDisableClickZoom: true,
-            clusterIconColor: '#007bff'
-        });
-
-        // Настройка внешнего вида меток
-        objectManager.objects.options.set({
-            preset: 'islands#blueCompanyIcon',
-            iconColor: '#007bff',
-            balloonCloseButton: true
-        });
-
-        objectManager.clusters.options.set({
-            preset: 'islands#blueClusterIcons',
             clusterDisableClickZoom: true
         });
 
-        map.geoObjects.add(objectManager);
+        // Добавляем точки на карту с кастомными иконками
+        points.forEach(function(point, index) {
+            // Создаем кастомную иконку с логотипом
+            var iconContent = point.LogoURL ?
+                '<img src="' + point.LogoURL + '" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">' :
+                '<div style="width: 40px; height: 40px; border-radius: 50%; background: #007bff; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">' +
+                (point.TITLE ? point.TITLE.charAt(0).toUpperCase() : 'C') +
+                '</div>';
 
-        // Добавляем точки на карту
-        var features = points.map(function(point, index) {
-            return {
-                type: 'Feature',
-                id: index,
-                geometry: {
-                    type: 'Point',
-                    coordinates: point.GEOCODE
-                },
-                properties: {
-                    balloonContentHeader: '<div class="company-name">' + point.TITLE + '</div>',
-                    balloonContentBody: `
-                        <div class="company-balloon">
-                            ${point.LogoURL ?
-                                `<img src="${point.LogoURL}" alt="Логотип" class="company-logo"
-                                      onerror="this.style.display='none'">` :
-                                ''}
-                        </div>
-                    `,
-                    clusterCaption: point.TITLE,
-                    hintContent: point.TITLE
-                }
-            };
+            var placemark = new ymaps.Placemark(point.GEOCODE, {
+                balloonContentHeader: '<div class="company-name">' + point.TITLE + '</div>',
+                balloonContentBody: `
+                    <div class="company-balloon">
+                        ${point.LogoURL ?
+                            `<img src="${point.LogoURL}" alt="Логотип" class="company-logo"
+                                  onerror="this.style.display='none'">` :
+                            ''}
+                    </div>
+                `,
+                hintContent: point.TITLE
+            }, {
+                // Настройки иконки
+                iconLayout: 'default#imageWithContent',
+                iconImageHref: '', // Пустая строка, чтобы не показывать стандартную иконку
+                iconImageSize: [50, 50],
+                iconImageOffset: [-25, -25],
+
+                // Настройки контента внутри иконки
+                iconContentLayout: ymaps.templateLayoutFactory.createClass(
+                    '<div style="background: transparent; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;">' +
+                    iconContent +
+                    '</div>'
+                ),
+                iconContentOffset: [0, 0],
+                iconContentSize: [50, 50],
+
+                // Настройки балуна
+                balloonCloseButton: true,
+                balloonPanelMaxMapArea: 0
+            });
+
+            objectCollection.add(placemark);
         });
 
-        objectManager.add({
-            type: 'FeatureCollection',
-            features: features
-        });
+        map.geoObjects.add(objectCollection);
 
         // Если есть точки, центрируем карту на них
         if (points.length > 0) {
-            var bounds = objectManager.getBounds();
+            var bounds = objectCollection.getBounds();
             if (bounds) {
                 map.setBounds(bounds, {
                     checkZoomRange: true,
