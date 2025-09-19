@@ -778,9 +778,9 @@ def company_map(request):
     try:
         but = request.bitrix_user_token
 
-        # Получаем компании с пагинацией
+        # Получаем компании с пагинацией - добавляем описание
         companies = but.call_list_method('crm.company.list', {
-            'select': ['ID', 'TITLE', 'LOGO', 'ADDRESS'],
+            'select': ['ID', 'TITLE', 'LOGO', 'ADDRESS', 'COMMENTS'],  # Добавляем COMMENTS для описания
             'order': {'DATE_CREATE': 'DESC'}
         })
 
@@ -792,24 +792,36 @@ def company_map(request):
             'select': ['ENTITY_ID', 'ADDRESS_1', 'CITY', 'REGION', 'PROVINCE', 'COUNTRY']
         })
 
+        # Создаем словарь адресов по ID компании
+        addresses_dict = {}
+        for address in addresses:
+            company_id = address['ENTITY_ID']
+            addresses_dict[company_id] = address
+
         points = []
         geocoded_count = 0
 
-        for address in addresses:
-            company_id = address['ENTITY_ID']
-            company = companies_dict.get(company_id)
+        for company in companies:
+            company_id = company['ID']
+            address = addresses_dict.get(company_id)
 
-            if company:
+            if address:
                 # Получаем координаты
                 geocode = get_geocode(address)
 
                 if geocode:
                     geocoded_count += 1
+
+                    # Формируем полный адрес
+                    full_address = format_address(address)
+
                     # Получаем логотип
                     logo_url = get_logo(company)
 
                     point = {
                         'TITLE': company['TITLE'],
+                        'DESCRIPTION': company.get('COMMENTS', ''),  # Описание компании
+                        'ADDRESS': full_address,  # Полный адрес
                         'GEOCODE': geocode,
                         'LogoURL': logo_url
                     }
@@ -821,7 +833,7 @@ def company_map(request):
             'points': points,
             'error': None,
             'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email,
-            'yandex_api_key': settings.YANDEX_MAPS_API_KEY  # Передаем ключ в контекст
+            'yandex_api_key': settings.YANDEX_MAPS_API_KEY
         })
 
     except Exception as e:
@@ -833,3 +845,18 @@ def company_map(request):
             'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email,
             'yandex_api_key': settings.YANDEX_MAPS_API_KEY
         })
+
+
+def format_address(address_data):
+    """Форматирует адрес в читаемый вид"""
+    address_parts = [
+        address_data.get('ADDRESS_1'),
+        address_data.get('CITY'),
+        address_data.get('REGION'),
+        address_data.get('PROVINCE'),
+        address_data.get('COUNTRY')
+    ]
+
+    # Убираем пустые значения и объединяем
+    formatted_address = ', '.join(filter(None, address_parts))
+    return formatted_address

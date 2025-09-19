@@ -34,14 +34,30 @@
 
         .company-balloon {
             padding: 10px;
-            max-width: 250px;
+            max-width: 300px;
+            font-family: Arial, sans-serif;
         }
 
         .company-name {
             font-weight: bold;
             margin-bottom: 8px;
             color: #333;
+            font-size: 16px;
+        }
+
+        .company-description {
+            margin-bottom: 10px;
             font-size: 14px;
+            color: #555;
+            line-height: 1.4;
+        }
+
+        .company-address {
+            font-size: 13px;
+            color: #666;
+            border-top: 1px solid #eee;
+            padding-top: 8px;
+            margin-top: 8px;
         }
 
         .company-logo {
@@ -50,6 +66,7 @@
             margin: 8px 0;
             object-fit: contain;
             border-radius: 4px;
+            display: block;
         }
 
         .loading-container {
@@ -198,17 +215,27 @@
                 '</div>';
 
             var placemark = new ymaps.Placemark(point.GEOCODE, {
-                balloonContentHeader: '<div class="company-name">' + point.TITLE + '</div>',
-                balloonContentBody: `
-                    <div class="company-balloon">
-                        ${point.LogoURL ?
-                            `<img src="${point.LogoURL}" alt="Логотип" class="company-logo"
-                                  onerror="this.style.display='none'">` :
-                            ''}
-                    </div>
-                `,
-                hintContent: point.TITLE
-            }, {
+                    balloonContentHeader: '<div class="company-name">' + point.TITLE + '</div>',
+                    balloonContentBody: `
+                        <div class="company-balloon">
+                            ${point.DESCRIPTION ?
+                                '<div class="company-description" style="margin-bottom: 10px; font-size: 13px; color: #666;">' +
+                                point.DESCRIPTION +
+                                '</div>' :
+                                ''}
+                            ${point.ADDRESS ?
+                                '<div class="company-address" style="font-size: 12px; color: #888; border-top: 1px solid #eee; padding-top: 8px; margin-top: 8px;">' +
+                                '<strong>Адрес:</strong> ' + point.ADDRESS +
+                                '</div>' :
+                                ''}
+                            ${point.LogoURL ?
+                                `<img src="${point.LogoURL}" alt="Логотип" class="company-logo"
+                                      onerror="this.style.display='none'" style="margin-top: 10px;">` :
+                                ''}
+                        </div>
+                    `,
+                    hintContent: point.TITLE
+                }, {
                 // Настройки иконки
                 iconLayout: 'default#imageWithContent',
                 iconImageHref: '', // Пустая строка, чтобы не показывать стандартную иконку
