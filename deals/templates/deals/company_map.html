@@ -170,18 +170,15 @@
 </div>
 
 <script>
-    // Инициализация карты после загрузки API
     ymaps.ready(init);
 
     function init() {
-        // Создаем карту
         var map = new ymaps.Map('map', {
             center: [55.76, 37.64],
             zoom: 10,
             controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
         });
 
-        // Данные точек из Django контекста
         var points = {{ points|safe }};
 
         if (points.length === 0) {
@@ -197,7 +194,6 @@
             return;
         }
 
-        // Создаем коллекцию Placemark вместо ObjectManager для кастомных иконок
         var objectCollection = new ymaps.GeoObjectCollection(null, {
             preset: 'islands#blueIcon',
             clusterize: true,
@@ -205,9 +201,7 @@
             clusterDisableClickZoom: true
         });
 
-        // Добавляем точки на карту с кастомными иконками
         points.forEach(function(point, index) {
-            // Создаем кастомную иконку с логотипом
             var iconContent = point.LogoURL ?
                 '<img src="' + point.LogoURL + '" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">' :
                 '<div style="width: 40px; height: 40px; border-radius: 50%; background: #007bff; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);">' +
@@ -236,13 +230,11 @@
                     `,
                     hintContent: point.TITLE
                 }, {
-                // Настройки иконки
                 iconLayout: 'default#imageWithContent',
-                iconImageHref: '', // Пустая строка, чтобы не показывать стандартную иконку
+                iconImageHref: '',
                 iconImageSize: [50, 50],
                 iconImageOffset: [-25, -25],
 
-                // Настройки контента внутри иконки
                 iconContentLayout: ymaps.templateLayoutFactory.createClass(
                     '<div style="background: transparent; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;">' +
                     iconContent +
@@ -251,7 +243,6 @@
                 iconContentOffset: [0, 0],
                 iconContentSize: [50, 50],
 
-                // Настройки балуна
                 balloonCloseButton: true,
                 balloonPanelMaxMapArea: 0
             });
@@ -261,7 +252,6 @@
 
         map.geoObjects.add(objectCollection);
 
-        // Если есть точки, центрируем карту на них
         if (points.length > 0) {
             var bounds = objectCollection.getBounds();
             if (bounds) {
@@ -272,7 +262,6 @@
             }
         }
 
-        // Добавляем поиск на карту
         var searchControl = new ymaps.control.SearchControl({
             options: {
                 float: 'right',
@@ -283,23 +272,20 @@
         });
         map.controls.add(searchControl);
 
-        // Обработчик поиска
         searchControl.events.add('resultselect', function (e) {
             var index = e.get('index');
             searchControl.getResult(index).then(function (res) {
                 map.setCenter(res.geometry.getCoordinates(), 15);
             });
         });
-        
-        // Добавляем масштабирование колесом мыши
+
         map.behaviors.enable('scrollZoom');
     }
     
     function refreshMap() {
         location.reload();
     }
-    
-    // Обновляем счетчики
+
     document.addEventListener('DOMContentLoaded', function() {
         var points = {{ points|safe }};
         document.getElementById('companies-count').textContent = points.length;

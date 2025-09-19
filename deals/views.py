@@ -659,7 +659,6 @@ def generate_test_calls(request):
 def get_geocode(address_data):
     """Получение координат по адресу через Яндекс Геокодер с кэшированием"""
     try:
-        # Формируем адрес из доступных полей
         address_parts = [
             address_data.get('ADDRESS_1'),
             address_data.get('CITY'),
@@ -672,7 +671,6 @@ def get_geocode(address_data):
         if not address:
             return None
 
-        # Проверяем кэш
         cache_key = f'geocode_{hash(address)}'
         cached_coords = cache.get(cache_key)
         if cached_coords:
@@ -693,7 +691,6 @@ def get_geocode(address_data):
         response.raise_for_status()
         data = response.json()
 
-        # Извлекаем координаты
         feature_member = data['response']['GeoObjectCollection']['featureMember']
         if not feature_member:
             return None
@@ -702,7 +699,6 @@ def get_geocode(address_data):
         longitude, latitude = map(float, pos.split(' '))
         coords = [latitude, longitude]
 
-        # Сохраняем в кэш на 30 дней
         cache.set(cache_key, coords, timeout=60 * 60 * 24 * 30)
 
         return coords
@@ -719,7 +715,6 @@ def get_logo(company):
         if not logo_data:
             return None
 
-        # Проверяем кэш
         cache_key = f'logo_{company["ID"]}'
         cached_logo_url = cache.get(cache_key)
         if cached_logo_url:
@@ -732,36 +727,29 @@ def get_logo(company):
         if not download_url:
             return None
 
-        # Формируем полный URL
         if download_url.startswith(('http://', 'https://')):
             full_url = download_url
         else:
             full_url = f'https://{bitrix_domain}{download_url}'
 
-        # Создаем директорию для логотипов
         logo_dir = os.path.join(settings.MEDIA_ROOT, 'company_logos')
         os.makedirs(logo_dir, exist_ok=True)
 
-        # Путь для сохранения файла
         file_name = f"logo_{company['ID']}.png"
         file_path = os.path.join(logo_dir, file_name)
 
-        # Если файл уже существует, возвращаем его URL
         if os.path.exists(file_path):
             relative_path = os.path.relpath(file_path, settings.MEDIA_ROOT)
             logo_url = f"{root_url}{settings.MEDIA_URL}{relative_path}".replace('\\', '/')
             cache.set(cache_key, logo_url, timeout=60 * 60 * 24 * 30)
             return logo_url
 
-        # Скачиваем логотип
         response = requests.get(full_url, timeout=10)
         response.raise_for_status()
 
-        # Сохраняем файл
         with open(file_path, 'wb') as f:
             f.write(response.content)
 
-        # Возвращаем URL
         relative_path = os.path.relpath(file_path, settings.MEDIA_ROOT)
         logo_url = f"{root_url}{settings.MEDIA_URL}{relative_path}".replace('\\', '/')
         cache.set(cache_key, logo_url, timeout=60 * 60 * 24 * 30)
@@ -778,21 +766,18 @@ def company_map(request):
     try:
         but = request.bitrix_user_token
 
-        # Получаем компании с пагинацией - добавляем описание
         companies = but.call_list_method('crm.company.list', {
-            'select': ['ID', 'TITLE', 'LOGO', 'ADDRESS', 'COMMENTS'],  # Добавляем COMMENTS для описания
+            'select': ['ID', 'TITLE', 'LOGO', 'ADDRESS', 'COMMENTS'],
             'order': {'DATE_CREATE': 'DESC'}
         })
 
         companies_dict = {company['ID']: company for company in companies}
 
-        # Получаем адреса компаний
         addresses = but.call_list_method('crm.address.list', {
-            'filter': {'ENTITY_TYPE_ID': 4},  # 4 - тип сущности "Компания"
+            'filter': {'ENTITY_TYPE_ID': 4},
             'select': ['ENTITY_ID', 'ADDRESS_1', 'CITY', 'REGION', 'PROVINCE', 'COUNTRY']
         })
 
-        # Создаем словарь адресов по ID компании
         addresses_dict = {}
         for address in addresses:
             company_id = address['ENTITY_ID']
@@ -806,22 +791,19 @@ def company_map(request):
             address = addresses_dict.get(company_id)
 
             if address:
-                # Получаем координаты
                 geocode = get_geocode(address)
 
                 if geocode:
                     geocoded_count += 1
 
-                    # Формируем полный адрес
                     full_address = format_address(address)
 
-                    # Получаем логотип
                     logo_url = get_logo(company)
 
                     point = {
                         'TITLE': company['TITLE'],
-                        'DESCRIPTION': company.get('COMMENTS', ''),  # Описание компании
-                        'ADDRESS': full_address,  # Полный адрес
+                        'DESCRIPTION': company.get('COMMENTS', ''),
+                        'ADDRESS': full_address,
                         'GEOCODE': geocode,
                         'LogoURL': logo_url
                     }
@@ -857,6 +839,5 @@ def format_address(address_data):
         address_data.get('COUNTRY')
     ]
 
-    # Убираем пустые значения и объединяем
     formatted_address = ', '.join(filter(None, address_parts))
     return formatted_address
