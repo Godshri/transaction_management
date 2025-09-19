@@ -657,7 +657,7 @@ def generate_test_calls(request):
 
 
 def get_geocode(address_data):
-    """Получение координат по адресу через Яндекс Геокодер с кэшированием"""
+    """Получение координат по адресу"""
     try:
         address_parts = [
             address_data.get('ADDRESS_1'),
@@ -709,7 +709,7 @@ def get_geocode(address_data):
 
 
 def get_logo(company):
-    """Получение логотипа компании с кэшированием"""
+    """Получение логотипа компании"""
     try:
         logo_data = company.get('LOGO')
         if not logo_data:
