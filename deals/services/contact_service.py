@@ -11,6 +11,25 @@ class ContactService:
 
     def __init__(self, bitrix_token):
         self.bitrix_token = bitrix_token
+        # Проверяем доступные методы
+        self._check_batch_capabilities()
+
+    def _check_batch_capabilities(self):
+        """Проверяем доступность batch методов"""
+        try:
+            # Проверяем наличие метода call_batch
+            if hasattr(self.bitrix_token, 'call_batch'):
+                logger.info("Доступен метод call_batch")
+            elif hasattr(self.bitrix_token, 'call_api_method'):
+                logger.info("Доступен метод call_api_method")
+
+            # Проверяем другие возможные batch методы
+            available_methods = [method for method in dir(self.bitrix_token)
+                                 if 'batch' in method.lower() or 'call' in method.lower()]
+            logger.info(f"Доступные методы: {available_methods}")
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки методов: {e}")
 
     def batch_create_contacts(self, contacts_data: List[Dict]) -> List[Dict]:
         """Пакетное создание контактов через batch API"""
@@ -35,47 +54,56 @@ class ContactService:
         if not validated_contacts:
             return results
 
-        # Подготавливаем команды для batch
-        commands = {}
-        company_names = set()
+        # Пробуем использовать batch API если доступен
+        if hasattr(self.bitrix_token, 'call_batch'):
+            return self._create_contacts_with_batch(validated_contacts)
+        else:
+            # Fallback на последовательное создание
+            return self._create_contacts_sequential(validated_contacts)
 
-        for original_index, contact in validated_contacts:
-            cmd_id = f"contact_{original_index}"
+    def _create_contacts_with_batch(self, validated_contacts: List[tuple]) -> List[Dict]:
+        """Создание контактов через batch API"""
+        results = []
 
-            fields = {
-                'NAME': contact.get('first_name', ''),
-                'LAST_NAME': contact.get('last_name', ''),
-            }
-
-            # Телефон
-            if contact.get('phone'):
-                phone = self._normalize_phone(contact['phone'])
-                if phone:
-                    fields['PHONE'] = [{'VALUE': phone, 'VALUE_TYPE': 'WORK'}]
-
-            # Email
-            if contact.get('email'):
-                email = contact['email'].strip()
-                if self._is_valid_email(email):
-                    fields['EMAIL'] = [{'VALUE': email, 'VALUE_TYPE': 'WORK'}]
-
-            # Компания (будем добавлять позже)
-            company_name = contact.get('company_name', '').strip()
-            if company_name:
-                company_names.add(company_name)
-                fields['COMPANY_NAME'] = company_name  # Временное поле
-
-            commands[cmd_id] = ('crm.contact.add', {'fields': fields})
-
-        # Выполняем batch запрос
         try:
-            batch_results = self.bitrix_token.call_batch_api(commands)
+            # Подготавливаем команды для batch
+            commands = {}
+
+            for original_index, contact in validated_contacts:
+                cmd_id = f"contact_{original_index}"
+
+                fields = {
+                    'NAME': contact.get('first_name', ''),
+                    'LAST_NAME': contact.get('last_name', ''),
+                }
+
+                # Телефон
+                if contact.get('phone'):
+                    phone = self._normalize_phone(contact['phone'])
+                    if phone:
+                        fields['PHONE'] = [{'VALUE': phone, 'VALUE_TYPE': 'WORK'}]
+
+                # Email
+                if contact.get('email'):
+                    email = contact['email'].strip()
+                    if self._is_valid_email(email):
+                        fields['EMAIL'] = [{'VALUE': email, 'VALUE_TYPE': 'WORK'}]
+
+                # Компания (будем обрабатывать отдельно после создания контактов)
+                company_name = contact.get('company_name', '').strip()
+                if company_name:
+                    fields['COMPANY_NAME'] = company_name  # Временное поле
+
+                commands[cmd_id] = ('crm.contact.add', {'fields': fields})
+
+            # Выполняем batch запрос
+            batch_results = self.bitrix_token.call_batch(commands)
 
             # Обрабатываем результаты
             for cmd_id, result in batch_results.items():
                 original_index = int(cmd_id.split('_')[1])
 
-                if result.get('result'):
+                if result and 'result' in result and result['result']:
                     contact_id = result['result']
                     results.append({
                         'success': True,
@@ -84,7 +112,9 @@ class ContactService:
                         'original_index': original_index
                     })
                 else:
-                    error_msg = result.get('error_description', str(result.get('error', 'Unknown error')))
+                    error_msg = result.get('error_description',
+                                           result.get('error',
+                                                      str(result) if result else 'Unknown error'))
                     results.append({
                         'success': False,
                         'contact_id': None,
@@ -94,66 +124,98 @@ class ContactService:
 
         except Exception as e:
             logger.error(f"Ошибка batch создания контактов: {e}")
-            # Если batch не сработал, создаем по одному
-            for original_index, contact in validated_contacts:
-                try:
-                    result = self._create_single_contact(contact)
-                    result['original_index'] = original_index
-                    results.append(result)
-                except Exception as single_error:
-                    results.append({
-                        'success': False,
-                        'contact_id': None,
-                        'error': str(single_error),
-                        'original_index': original_index
-                    })
+            # Fallback на последовательное создание
+            results = self._create_contacts_sequential(validated_contacts)
+
+        return results
+
+    def _create_contacts_sequential(self, validated_contacts: List[tuple]) -> List[Dict]:
+        """Создание контактов последовательно (fallback)"""
+        results = []
+
+        for original_index, contact in validated_contacts:
+            try:
+                result = self._create_single_contact(contact)
+                result['original_index'] = original_index
+                results.append(result)
+
+                # Пауза между запросами
+                time.sleep(0.1)
+
+            except Exception as single_error:
+                logger.error(f"Ошибка создания контакта {original_index}: {single_error}")
+                results.append({
+                    'success': False,
+                    'contact_id': None,
+                    'error': str(single_error),
+                    'original_index': original_index
+                })
 
         return results
 
     def _create_single_contact(self, contact_data: Dict) -> Dict:
         """Создание одного контакта"""
-        fields = {
-            'NAME': contact_data.get('first_name', ''),
-            'LAST_NAME': contact_data.get('last_name', ''),
-        }
+        try:
+            logger.info(f"Создание контакта: {contact_data.get('first_name')} {contact_data.get('last_name')}")
 
-        # Телефон
-        if contact_data.get('phone'):
-            phone = self._normalize_phone(contact_data['phone'])
-            if phone:
-                fields['PHONE'] = [{'VALUE': phone, 'VALUE_TYPE': 'WORK'}]
-
-        # Email
-        if contact_data.get('email'):
-            email = contact_data['email'].strip()
-            if self._is_valid_email(email):
-                fields['EMAIL'] = [{'VALUE': email, 'VALUE_TYPE': 'WORK'}]
-
-        # Компания
-        company_name = contact_data.get('company_name', '').strip()
-        if company_name:
-            company_id = self._find_or_create_company(company_name)
-            if company_id:
-                fields['COMPANY_ID'] = company_id
-
-        result = self.bitrix_token.call_api_method('crm.contact.add', {
-            'fields': fields
-        })
-
-        if 'result' in result:
-            return {
-                'success': True,
-                'contact_id': result['result'],
-                'error': None
+            fields = {
+                'NAME': contact_data.get('first_name', ''),
+                'LAST_NAME': contact_data.get('last_name', ''),
             }
-        else:
-            error_msg = str(result.get('error', 'Unknown error'))
+
+            # Телефон
+            if contact_data.get('phone'):
+                phone = self._normalize_phone(contact_data['phone'])
+                if phone:
+                    fields['PHONE'] = [{'VALUE': phone, 'VALUE_TYPE': 'WORK'}]
+
+            # Email
+            if contact_data.get('email'):
+                email = contact_data['email'].strip()
+                if self._is_valid_email(email):
+                    fields['EMAIL'] = [{'VALUE': email, 'VALUE_TYPE': 'WORK'}]
+
+            # Компания
+            company_name = contact_data.get('company_name', '').strip()
+            if company_name:
+                company_id = self._find_or_create_company(company_name)
+                if company_id:
+                    fields['COMPANY_ID'] = company_id
+
+            # Используем правильный метод API
+            if hasattr(self.bitrix_token, 'call_api_method'):
+                result = self.bitrix_token.call_api_method('crm.contact.add', {
+                    'fields': fields
+                })
+            else:
+                # Альтернативный вызов
+                result = self.bitrix_token.callMethod('crm.contact.add', fields)
+
+            if result and 'result' in result:
+                logger.info(f"Контакт создан успешно, ID: {result['result']}")
+                return {
+                    'success': True,
+                    'contact_id': result['result'],
+                    'error': None
+                }
+            else:
+                error_msg = str(result.get('error', 'Unknown error')) if result else 'No result'
+                logger.error(f"Ошибка создания контакта: {error_msg}")
+                return {
+                    'success': False,
+                    'contact_id': None,
+                    'error': error_msg
+                }
+
+        except Exception as e:
+            logger.error(f"Исключение при создании контакта: {e}")
             return {
                 'success': False,
                 'contact_id': None,
-                'error': error_msg
+                'error': str(e)
             }
 
+    # Остальные методы остаются без изменений...
     def _validate_contact(self, contact_data: Dict) -> Dict:
         """Валидация и очистка данных контакта"""
         if not contact_data:
@@ -246,7 +308,7 @@ class ContactService:
         return None
 
     def get_contacts(self, filters: Dict = None) -> List[Dict]:
-        """Получение контактов с фильтрами"""
+        """Получение контактов с фильтрами через batch"""
         if filters is None:
             filters = {}
 
@@ -284,51 +346,69 @@ class ContactService:
         return contacts
 
     def get_contact_companies(self, contact_ids: List[int]) -> Dict[int, str]:
-        """Получение названий компаний для контактов"""
+        """Получение названий компаний для контактов через batch"""
         if not contact_ids:
             return {}
 
         company_names = {}
 
         try:
-            # Получаем контакты с информацией о компаниях
-            commands = {}
-            for i, contact_id in enumerate(contact_ids):
-                commands[f"contact_{i}"] = ('crm.contact.get', {'id': contact_id})
+            # Используем batch для получения контактов
+            if hasattr(self.bitrix_token, 'call_batch') and len(contact_ids) > 1:
+                # Batch запрос для контактов
+                contact_commands = {}
+                for i, contact_id in enumerate(contact_ids):
+                    contact_commands[f"contact_{i}"] = ('crm.contact.get', {'id': contact_id})
 
-            results = self.bitrix_token.call_batch_api(commands)
+                contact_results = self.bitrix_token.call_batch(contact_commands)
 
-            # Собираем ID компаний
-            company_ids = set()
-            contact_company_map = {}
+                # Собираем ID компаний
+                company_ids = set()
+                contact_company_map = {}
 
-            for key, result in results.items():
-                if result.get('result') and result['result'].get('COMPANY_ID'):
-                    contact_id = contact_ids[int(key.split('_')[1])]
-                    company_id = result['result']['COMPANY_ID']
-                    company_ids.add(company_id)
-                    contact_company_map[contact_id] = company_id
+                for key, result in contact_results.items():
+                    if result and result.get('result') and result['result'].get('COMPANY_ID'):
+                        contact_index = int(key.split('_')[1])
+                        contact_id = contact_ids[contact_index]
+                        company_id = result['result']['COMPANY_ID']
+                        company_ids.add(company_id)
+                        contact_company_map[contact_id] = company_id
 
-            # Получаем названия компаний
-            if company_ids:
-                company_commands = {}
-                company_list = list(company_ids)
+                # Batch запрос для компаний
+                if company_ids:
+                    company_commands = {}
+                    company_list = list(company_ids)
 
-                for i, company_id in enumerate(company_list):
-                    company_commands[f"company_{i}"] = ('crm.company.get', {'id': company_id})
+                    for i, company_id in enumerate(company_list):
+                        company_commands[f"company_{i}"] = ('crm.company.get', {'id': company_id})
 
-                company_results = self.bitrix_token.call_batch_api(company_commands)
+                    company_results = self.bitrix_token.call_batch(company_commands)
 
-                # Сопоставляем
-                for key, result in company_results.items():
-                    if result.get('result'):
-                        company_id = company_list[int(key.split('_')[1])]
-                        company_name = result['result'].get('TITLE', '')
+                    # Сопоставляем результаты
+                    for key, result in company_results.items():
+                        if result and result.get('result'):
+                            company_index = int(key.split('_')[1])
+                            company_id = company_list[company_index]
+                            company_name = result['result'].get('TITLE', '')
 
-                        # Находим все контакты с этой компанией
-                        for contact_id, comp_id in contact_company_map.items():
-                            if comp_id == company_id:
+                            # Находим контакты с этой компанией
+                            for contact_id, comp_id in contact_company_map.items():
+                                if comp_id == company_id:
+                                    company_names[contact_id] = company_name
+            else:
+                # Последовательный запрос для небольшого количества
+                for contact_id in contact_ids:
+                    try:
+                        result = self.bitrix_token.call_api_method('crm.contact.get', {'id': contact_id})
+                        if result.get('result') and result['result'].get('COMPANY_ID'):
+                            company_id = result['result']['COMPANY_ID']
+                            company_result = self.bitrix_token.call_api_method('crm.company.get', {'id': company_id})
+                            if company_result.get('result'):
+                                company_name = company_result['result'].get('TITLE', '')
                                 company_names[contact_id] = company_name
+                    except Exception as e:
+                        logger.error(f"Ошибка получения компании для контакта {contact_id}: {e}")
+                        continue
 
         except Exception as e:
             logger.error(f"Ошибка получения компаний: {e}")

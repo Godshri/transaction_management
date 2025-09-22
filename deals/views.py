@@ -952,7 +952,7 @@ def export_contacts(request):
 
 
 def process_import_file(job_id, file, file_format, bitrix_token):
-    """Обработка импорта контактов"""
+    """Обработка импорта контактов с использованием batch"""
     try:
         job = ImportExportJob.objects.get(id=job_id)
         job.status = ImportExportJob.STATUS_PROCESSING
@@ -973,7 +973,7 @@ def process_import_file(job_id, file, file_format, bitrix_token):
         job.total_records = len(records)
         job.save()
 
-        # Обрабатываем пачками по 50 записей
+        # Обрабатываем пачками по 50 записей для эффективности
         batch_size = 50
         success_count = 0
         fail_count = 0
@@ -982,17 +982,16 @@ def process_import_file(job_id, file, file_format, bitrix_token):
             batch = records[i:i + batch_size]
             results = contact_service.batch_create_contacts(batch)
 
-            for result in results:
-                original_index = i + result.get('original_index', 0)
-                contact_data = batch[result.get('original_index', 0)] if result.get(
-                    'original_index') is not None else {}
+            for j, result in enumerate(results):
+                record_index = i + j
+                contact_data = batch[j] if j < len(batch) else {}
 
                 ImportExportRecord.objects.create(
                     job=job,
-                    record_index=original_index,
+                    record_index=record_index,
                     contact_data=contact_data,
                     status='success' if result.get('success') else 'failed',
-                    error_message=result.get('error', '')[:500],  # Ограничиваем длину
+                    error_message=str(result.get('error', ''))[:500],
                     bitrix_contact_id=result.get('contact_id')
                 )
 
@@ -1001,29 +1000,32 @@ def process_import_file(job_id, file, file_format, bitrix_token):
                 else:
                     fail_count += 1
 
+            # Обновляем прогресс после каждой пачки
             job.processed_records = min(i + batch_size, len(records))
             job.failed_records = fail_count
             job.save()
 
-            # Пауза между batch запросами
+            # Короткая пауза между batch запросами
             time.sleep(0.5)
 
         job.status = ImportExportJob.STATUS_COMPLETED
         job.completed_at = timezone.now()
         job.save()
 
+        logger.info(f"Импорт завершен: {success_count} успешно, {fail_count} с ошибками")
         return True
 
     except Exception as e:
         logger.error(f"Ошибка обработки импорта: {e}")
-        job.status = ImportExportJob.STATUS_FAILED
-        job.error_message = str(e)
-        job.save()
+        if 'job' in locals():
+            job.status = ImportExportJob.STATUS_FAILED
+            job.error_message = str(e)
+            job.save()
         return False
 
 
 def process_export(job_id, filters, file_format, bitrix_token):
-    """Обработка экспорта контактов"""
+    """Обработка экспорта контактов с использованием batch"""
     try:
         job = ImportExportJob.objects.get(id=job_id)
         job.status = ImportExportJob.STATUS_PROCESSING
@@ -1045,7 +1047,7 @@ def process_export(job_id, filters, file_format, bitrix_token):
         job.total_records = len(contacts)
         job.save()
 
-        # Получаем названия компаний
+        # Получаем названия компаний через batch
         contact_ids = [contact['ID'] for contact in contacts]
         company_names = contact_service.get_contact_companies(contact_ids)
 
@@ -1091,7 +1093,12 @@ def process_export(job_id, filters, file_format, bitrix_token):
 
             export_data.append(record_data)
             job.processed_records = i + 1
-            job.save()
+
+            # Обновляем прогресс каждые 50 записей
+            if (i + 1) % 50 == 0:
+                job.save()
+
+        job.save()
 
         # Создаем файл
         handler = FileHandlerFactory.get_handler(file_format)
