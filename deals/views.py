@@ -19,7 +19,7 @@ from urllib.parse import urljoin
 import requests
 import random
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from . import telephony_utils
 from .telephony_utils import generate_external_call
 import os
@@ -27,6 +27,8 @@ from django.core.cache import cache
 import csv
 from .file_handlers.base_handler import FileHandlerFactory
 from .services.contact_service import ContactService
+import time
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -957,32 +959,40 @@ def process_import_file(job_id, file, file_format, bitrix_token):
         job.save()
 
         contact_service = ContactService(bitrix_token)
-        handler = FileHandlerFactory.get_handler(file_format)
 
-        # Читаем записи из файла
+        # Читаем файл
+        handler = FileHandlerFactory.get_handler(file_format)
         records = handler.read_records(file)
+
+        if not records:
+            job.status = ImportExportJob.STATUS_FAILED
+            job.error_message = "Файл не содержит валидных данных"
+            job.save()
+            return False
+
         job.total_records = len(records)
         job.save()
 
+        # Обрабатываем пачками по 50 записей
+        batch_size = 50
         success_count = 0
         fail_count = 0
 
-        # Обрабатываем записи пачками по 50
-        batch_size = 50
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
             results = contact_service.batch_create_contacts(batch)
 
-            for j, result in enumerate(results):
-                record_index = i + j
-                contact_data = batch[j]
+            for result in results:
+                original_index = i + result.get('original_index', 0)
+                contact_data = batch[result.get('original_index', 0)] if result.get(
+                    'original_index') is not None else {}
 
                 ImportExportRecord.objects.create(
                     job=job,
-                    record_index=record_index,
+                    record_index=original_index,
                     contact_data=contact_data,
                     status='success' if result.get('success') else 'failed',
-                    error_message=result.get('error', ''),
+                    error_message=result.get('error', '')[:500],  # Ограничиваем длину
                     bitrix_contact_id=result.get('contact_id')
                 )
 
@@ -991,9 +1001,12 @@ def process_import_file(job_id, file, file_format, bitrix_token):
                 else:
                     fail_count += 1
 
-            job.processed_records = i + len(batch)
+            job.processed_records = min(i + batch_size, len(records))
             job.failed_records = fail_count
             job.save()
+
+            # Пауза между batch запросами
+            time.sleep(0.5)
 
         job.status = ImportExportJob.STATUS_COMPLETED
         job.completed_at = timezone.now()
@@ -1002,10 +1015,10 @@ def process_import_file(job_id, file, file_format, bitrix_token):
         return True
 
     except Exception as e:
+        logger.error(f"Ошибка обработки импорта: {e}")
         job.status = ImportExportJob.STATUS_FAILED
         job.error_message = str(e)
         job.save()
-        logger.error(f"Ошибка обработки импорта: {e}")
         return False
 
 
@@ -1020,6 +1033,15 @@ def process_export(job_id, filters, file_format, bitrix_token):
 
         # Получаем контакты
         contacts = contact_service.get_contacts(filters)
+
+        if not contacts:
+            job.status = ImportExportJob.STATUS_COMPLETED
+            job.total_records = 0
+            job.processed_records = 0
+            job.completed_at = timezone.now()
+            job.save()
+            return True
+
         job.total_records = len(contacts)
         job.save()
 
@@ -1030,13 +1052,23 @@ def process_export(job_id, filters, file_format, bitrix_token):
         # Подготавливаем данные для экспорта
         export_data = []
         for i, contact in enumerate(contacts):
+            # Обрабатываем телефон
             phone = ''
             if contact.get('PHONE'):
-                phone = contact['PHONE'][0]['VALUE'] if isinstance(contact['PHONE'], list) else contact['PHONE']
+                phones = contact['PHONE']
+                if isinstance(phones, list) and phones:
+                    phone = phones[0].get('VALUE', '')
+                elif isinstance(phones, dict):
+                    phone = phones.get('VALUE', '')
 
+            # Обрабатываем email
             email = ''
             if contact.get('EMAIL'):
-                email = contact['EMAIL'][0]['VALUE'] if isinstance(contact['EMAIL'], list) else contact['EMAIL']
+                emails = contact['EMAIL']
+                if isinstance(emails, list) and emails:
+                    email = emails[0].get('VALUE', '')
+                elif isinstance(emails, dict):
+                    email = emails.get('VALUE', '')
 
             company_name = company_names.get(contact['ID'], '')
 
@@ -1048,6 +1080,7 @@ def process_export(job_id, filters, file_format, bitrix_token):
                 'company_name': company_name
             }
 
+            # Сохраняем запись
             ImportExportRecord.objects.create(
                 job=job,
                 record_index=i,
@@ -1057,18 +1090,16 @@ def process_export(job_id, filters, file_format, bitrix_token):
             )
 
             export_data.append(record_data)
-
             job.processed_records = i + 1
             job.save()
 
-        # Сохраняем экспортированные данные в файл
+        # Создаем файл
         handler = FileHandlerFactory.get_handler(file_format)
         response = handler.write_records(export_data)
 
-        # Сохраняем файл в медиа
-        file_content = response.content
+        # Сохраняем файл
         file_name = f"export_{job_id}.{file_format}"
-        job.export_file.save(file_name, ContentFile(file_content))
+        job.export_file.save(file_name, ContentFile(response.content))
 
         job.status = ImportExportJob.STATUS_COMPLETED
         job.completed_at = timezone.now()
@@ -1077,10 +1108,10 @@ def process_export(job_id, filters, file_format, bitrix_token):
         return True
 
     except Exception as e:
+        logger.error(f"Ошибка обработки экспорта: {e}")
         job.status = ImportExportJob.STATUS_FAILED
         job.error_message = str(e)
         job.save()
-        logger.error(f"Ошибка обработки экспорта: {e}")
         return False
 
 

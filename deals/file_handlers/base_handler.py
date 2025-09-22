@@ -3,6 +3,7 @@ import csv
 import io
 from django.http import HttpResponse
 import openpyxl
+from openpyxl.utils.exceptions import InvalidFileException
 
 
 class BaseFileHandler(abc.ABC):
@@ -24,64 +25,107 @@ class CSVHandler(BaseFileHandler):
 
     def read_records(self, file):
         """Чтение CSV файла с поддержкой русской кодировки"""
-        try:
-            # Пытаемся прочитать в UTF-8
-            decoded_file = file.read().decode('utf-8')
-        except UnicodeDecodeError:
-            # Если не получается, пробуем Windows-1251 (кириллица)
-            file.seek(0)
-            decoded_file = file.read().decode('cp1251')
-
-        io_string = io.StringIO(decoded_file)
-
-        # Определяем разделитель (запятая или точка с запятой)
-        sample = decoded_file[:1024]
-        if ';' in sample and sample.count(';') > sample.count(','):
-            delimiter = ';'
-        else:
-            delimiter = ','
-
-        reader = csv.DictReader(io_string, delimiter=delimiter)
-
         records = []
-        for row in reader:
-            # Нормализуем названия колонок (приводим к нижнему регистру и убираем пробелы)
-            normalized_row = {}
-            for key, value in row.items():
-                normalized_key = key.strip().lower()
-                normalized_row[normalized_key] = value.strip() if value else ''
 
-            records.append({
-                'first_name': normalized_row.get('имя', ''),
-                'last_name': normalized_row.get('фамилия', ''),
-                'phone': normalized_row.get('номер телефона', ''),
-                'email': normalized_row.get('почта', ''),
-                'company_name': normalized_row.get('компания', '')
-            })
+        try:
+            # Пытаемся прочитать в разных кодировках
+            for encoding in ['utf-8-sig', 'utf-8', 'cp1251', 'windows-1251']:
+                try:
+                    file.seek(0)
+                    content = file.read().decode(encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                raise ValueError("Не удалось определить кодировку файла")
+
+            # Определяем разделитель
+            sample = content[:1024]
+            if ';' in sample and sample.count(';') > sample.count(','):
+                delimiter = ';'
+            else:
+                delimiter = ','
+
+            io_string = io.StringIO(content)
+
+            # Читаем CSV
+            reader = csv.DictReader(io_string, delimiter=delimiter)
+
+            for row_num, row in enumerate(reader, 1):
+                try:
+                    # Нормализуем ключи
+                    normalized_row = {}
+                    for key, value in row.items():
+                        if key:
+                            normalized_key = key.strip().lower().replace('\ufeff', '')
+                            normalized_row[normalized_key] = value.strip() if value else ''
+
+                    # Маппинг полей
+                    record = {
+                        'first_name': '',
+                        'last_name': '',
+                        'phone': '',
+                        'email': '',
+                        'company_name': ''
+                    }
+
+                    # Ищем подходящие названия колонок
+                    for key in normalized_row.keys():
+                        if any(x in key for x in ['имя', 'name', 'first']):
+                            record['first_name'] = normalized_row[key]
+                        elif any(x in key for x in ['фамилия', 'last', 'surname']):
+                            record['last_name'] = normalized_row[key]
+                        elif any(x in key for x in ['телефон', 'phone', 'тел']):
+                            record['phone'] = normalized_row[key]
+                        elif any(x in key for x in ['почта', 'email', 'mail']):
+                            record['email'] = normalized_row[key]
+                        elif any(x in key for x in ['компания', 'company']):
+                            record['company_name'] = normalized_row[key]
+
+                    # Проверяем, что есть хотя бы имя или фамилия
+                    if record['first_name'] or record['last_name']:
+                        records.append(record)
+
+                except Exception as e:
+                    print(f"Ошибка в строке {row_num}: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"Ошибка чтения CSV: {e}")
+            raise
 
         return records
 
     def write_records(self, records):
         """Создание CSV файла с русскими заголовками"""
-        response = HttpResponse(content_type='text/csv; charset=utf-8')
-        response['Content-Disposition'] = 'attachment; filename="contacts_export.csv"'
+        try:
+            output = io.StringIO()
+            writer = csv.writer(output, delimiter=',', quoting=csv.QUOTE_ALL)
 
-        # Добавляем BOM для правильного отображения кириллицы в Excel
-        response.write('\ufeff')
+            # Заголовки
+            writer.writerow(['Имя', 'Фамилия', 'Телефон', 'Email', 'Компания'])
 
-        writer = csv.writer(response)
-        writer.writerow(['имя', 'фамилия', 'номер телефона', 'почта', 'компания'])
+            # Данные
+            for record in records:
+                writer.writerow([
+                    record.get('first_name', ''),
+                    record.get('last_name', ''),
+                    record.get('phone', ''),
+                    record.get('email', ''),
+                    record.get('company_name', '')
+                ])
 
-        for record in records:
-            writer.writerow([
-                record.get('first_name', ''),
-                record.get('last_name', ''),
-                record.get('phone', ''),
-                record.get('email', ''),
-                record.get('company_name', '')
-            ])
+            response = HttpResponse(
+                output.getvalue().encode('utf-8-sig'),
+                content_type='text/csv; charset=utf-8-sig'
+            )
+            response['Content-Disposition'] = 'attachment; filename="contacts_export.csv"'
 
-        return response
+            return response
+
+        except Exception as e:
+            print(f"Ошибка записи CSV: {e}")
+            raise
 
 
 class XLSXHandler(BaseFileHandler):
@@ -89,82 +133,112 @@ class XLSXHandler(BaseFileHandler):
 
     def read_records(self, file):
         """Чтение XLSX файла"""
-        workbook = openpyxl.load_workbook(file)
-        sheet = workbook.active
-
         records = []
-        headers = []
 
-        for i, row in enumerate(sheet.iter_rows(values_only=True)):
-            if i == 0:
-                # Нормализуем заголовки
-                headers = []
-                for cell in row:
-                    if cell:
-                        header_text = str(cell).strip().lower()
-                        headers.append(header_text)
-                    else:
-                        headers.append('')
-                continue
+        try:
+            file.seek(0)
+            workbook = openpyxl.load_workbook(file, read_only=True)
+            sheet = workbook.active
 
-            record = {}
-            for j, cell in enumerate(row):
-                if j < len(headers):
-                    cell_value = str(cell) if cell is not None else ''
-                    record[headers[j]] = cell_value.strip()
+            headers = []
 
-            # Маппинг полей с учетом возможных вариантов названий
-            first_name = (record.get('имя') or record.get('name') or
-                          record.get('first name') or record.get('firstname') or '')
+            for row_num, row in enumerate(sheet.iter_rows(values_only=True), 1):
+                if row_num == 1:
+                    # Заголовки
+                    headers = [str(cell).strip().lower() if cell else '' for cell in row]
+                    continue
 
-            last_name = (record.get('фамилия') or record.get('last name') or
-                         record.get('lastname') or record.get('surname') or '')
+                if not any(cell for cell in row):  # Пропускаем пустые строки
+                    continue
 
-            phone = (record.get('номер телефона') or record.get('телефон') or
-                     record.get('phone') or record.get('номер') or '')
+                try:
+                    record = {
+                        'first_name': '',
+                        'last_name': '',
+                        'phone': '',
+                        'email': '',
+                        'company_name': ''
+                    }
 
-            email = (record.get('почта') or record.get('email') or
-                     record.get('e-mail') or record.get('mail') or '')
+                    # Маппинг данных
+                    for col_num, cell in enumerate(row):
+                        if col_num < len(headers) and cell is not None:
+                            cell_value = str(cell).strip()
+                            header = headers[col_num]
 
-            company_name = (record.get('компания') or record.get('company') or
-                            record.get('организация') or record.get('фирма') or '')
+                            if any(x in header for x in ['имя', 'name', 'first']):
+                                record['first_name'] = cell_value
+                            elif any(x in header for x in ['фамилия', 'last', 'surname']):
+                                record['last_name'] = cell_value
+                            elif any(x in header for x in ['телефон', 'phone', 'тел']):
+                                record['phone'] = cell_value
+                            elif any(x in header for x in ['почта', 'email', 'mail']):
+                                record['email'] = cell_value
+                            elif any(x in header for x in ['компания', 'company']):
+                                record['company_name'] = cell_value
 
-            records.append({
-                'first_name': first_name,
-                'last_name': last_name,
-                'phone': phone,
-                'email': email,
-                'company_name': company_name
-            })
+                    # Добавляем только если есть данные
+                    if record['first_name'] or record['last_name']:
+                        records.append(record)
+
+                except Exception as e:
+                    print(f"Ошибка в строке {row_num}: {e}")
+                    continue
+
+            workbook.close()
+
+        except InvalidFileException:
+            raise ValueError("Некорректный XLSX файл")
+        except Exception as e:
+            print(f"Ошибка чтения XLSX: {e}")
+            raise
 
         return records
 
     def write_records(self, records):
         """Создание XLSX файла"""
-        workbook = openpyxl.Workbook()
-        sheet = workbook.active
-        sheet.title = "Контакты"
+        try:
+            workbook = openpyxl.Workbook()
+            sheet = workbook.active
+            sheet.title = "Контакты"
 
-        # Заголовки на русском
-        sheet.append(['имя', 'фамилия', 'номер телефона', 'почта', 'компания'])
+            # Заголовки
+            sheet.append(['Имя', 'Фамилия', 'Телефон', 'Email', 'Компания'])
 
-        # Данные
-        for record in records:
-            sheet.append([
-                record.get('first_name', ''),
-                record.get('last_name', ''),
-                record.get('phone', ''),
-                record.get('email', ''),
-                record.get('company_name', '')
-            ])
+            # Данные
+            for record in records:
+                sheet.append([
+                    record.get('first_name', ''),
+                    record.get('last_name', ''),
+                    record.get('phone', ''),
+                    record.get('email', ''),
+                    record.get('company_name', '')
+                ])
 
-        response = HttpResponse(
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        response['Content-Disposition'] = 'attachment; filename="contacts_export.xlsx"'
+            # Авто-ширина колонок
+            for column in sheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                sheet.column_dimensions[column_letter].width = adjusted_width
 
-        workbook.save(response)
-        return response
+            response = HttpResponse(
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = 'attachment; filename="contacts_export.xlsx"'
+
+            workbook.save(response)
+            return response
+
+        except Exception as e:
+            print(f"Ошибка записи XLSX: {e}")
+            raise
 
 
 class FileHandlerFactory:
@@ -172,9 +246,10 @@ class FileHandlerFactory:
 
     @staticmethod
     def get_handler(file_format):
+        file_format = file_format.lower()
         if file_format == 'csv':
             return CSVHandler()
         elif file_format == 'xlsx':
             return XLSXHandler()
         else:
-            raise ValueError(f"Unsupported file format: {file_format}")
+            raise ValueError(f"Неподдерживаемый формат файла: {file_format}")
