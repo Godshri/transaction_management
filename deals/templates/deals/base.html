@@ -5,7 +5,14 @@
 <head>
     <title>{% block title %}Управление сделками{% endblock %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Базовые стили -->
+    <link rel="stylesheet" href="{% static 'css/base.css' %}">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
+    <!-- Дополнительные стили для конкретных страниц -->
+    {% block extra_css %}{% endblock %}
+
     {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -36,5 +43,14 @@
             {% endblock %}
         </main>
     </div>
+
+    <!-- Базовые скрипты -->
+    <script src="{% static 'js/base.js' %}"></script>
+
+    <!-- Блок для передачи данных из Django в JavaScript -->
+    {% block extra_data %}{% endblock %}
+
+    <!-- Дополнительные скрипты для конкретных страниц -->
+    {% block extra_js %}{% endblock %}
 </body>
 </html>
