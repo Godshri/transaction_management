@@ -160,3 +160,6 @@ CACHES = {
         'LOCATION': 'unique-snowflake',
     }
 }
+
+BACKGROUND_TASK_MAX_ATTEMPTS = 3
+BACKGROUND_TASK_RUN_ASYNC = True

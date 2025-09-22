@@ -15,6 +15,12 @@ urlpatterns = [
     path('employees/', views.employees_table, name='employees_table'),
     path('api/generate-test-calls/', views.generate_test_calls, name='generate_test_calls'),
     path('company-map/', views.company_map, name='company_map'),
+    path('contacts/', views.contacts_import_export, name='contacts_import_export'),
+    path('contacts/import/', views.import_contacts, name='import_contacts'),
+    path('contacts/export/', views.export_contacts, name='export_contacts'),
+    path('contacts/download/<uuid:job_id>/', views.download_export, name='download_export'),
+    path('contacts/status/<uuid:job_id>/', views.get_job_status, name='get_job_status'),
+    path('contacts/history/', views.contacts_history, name='contacts_history'),
 ]
 
 if settings.DEBUG:

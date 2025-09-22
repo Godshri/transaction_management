@@ -27,6 +27,7 @@
                 <a href="{% url 'create_deal' %}" {% if request.path == '/create-deal/' %}class="active"{% endif %}>Создать сделку</a>
                 <a href="{% url 'generate_qr' %}" {% if request.path == '/generate-qr/' %}class="active"{% endif %}>QR-коды</a>
                 <a href="{% url 'company_map' %}" {% if request.path == '/company-map/' %}class="active"{% endif %}>Карта компаний</a>
+                <a href="{% url 'contacts_import_export' %}" {% if request.path == '/contacts/' %}class="active"{% endif %}>Контакты</a>
             </nav>
         </header>
 

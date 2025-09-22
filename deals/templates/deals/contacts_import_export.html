@@ -1,0 +1,334 @@
+{% extends "deals/base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container">
+    <h2>Импорт/Экспорт контактов</h2>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab('import')">Импорт</button>
+        <button class="tab-btn" onclick="openTab('export')">Экспорт</button>
+        <button class="tab-btn" onclick="openTab('history')">История</button>
+    </div>
+
+    <div id="import" class="tab-content active">
+        <h3>Импорт контактов</h3>
+        <form id="importForm" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Формат файла:</label>
+                <select name="format" required>
+                    <option value="csv">CSV</option>
+                    <option value="xlsx">XLSX</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Файл с контактами:</label>
+                <input type="file" name="file" accept=".csv,.xlsx" required>
+                <small>Формат: имя,фамилия,номер телефона,почта,компания</small>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Начать импорт</button>
+        </form>
+
+        <div id="importProgress" style="display: none; margin-top: 20px;">
+            <h4>Прогресс импорта</h4>
+            <div class="progress">
+                <div class="progress-bar" style="width: 0%"></div>
+            </div>
+            <p>Обработано: <span id="processed">0</span> / <span id="total">0</span></p>
+            <p id="importStatus"></p>
+        </div>
+    </div>
+
+    <div id="export" class="tab-content">
+        <h3>Экспорт контактов</h3>
+        <form id="exportForm">
+            {% csrf_token %}
+            <div class="form-group">
+                <label>Формат файла:</label>
+                <select name="format" required>
+                    <option value="csv">CSV</option>
+                    <option value="xlsx">XLSX</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Фильтр по дате:</label>
+                <select name="date_filter">
+                    <option value="all">Все контакты</option>
+                    <option value="today">Сегодня</option>
+                    <option value="yesterday">Вчера</option>
+                    <option value="last_week">За последнюю неделю</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary">Начать экспорт</button>
+        </form>
+
+        <div id="exportProgress" style="display: none; margin-top: 20px;">
+            <h4>Прогресс экспорта</h4>
+            <div class="progress">
+                <div class="progress-bar" style="width: 0%"></div>
+            </div>
+            <p>Обработано: <span id="exportProcessed">0</span> / <span id="exportTotal">0</span></p>
+            <p id="exportStatus"></p>
+        </div>
+    </div>
+
+    <div id="history" class="tab-content">
+        <h3>История операций</h3>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Тип</th>
+                    <th>Формат</th>
+                    <th>Статус</th>
+                    <th>Записей</th>
+                    <th>Дата</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="historyTable">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+// Функции для управления вкладками
+function openTab(tabName) {
+    const tabContents = document.getElementsByClassName('tab-content');
+    for (let i = 0; i < tabContents.length; i++) {
+        tabContents[i].classList.remove('active');
+    }
+
+    const tabButtons = document.getElementsByClassName('tab-btn');
+    for (let i = 0; i < tabButtons.length; i++) {
+        tabButtons[i].classList.remove('active');
+    }
+
+    document.getElementById(tabName).classList.add('active');
+    event.currentTarget.classList.add('active');
+
+    // Если открываем вкладку истории, загружаем данные
+    if (tabName === 'history') {
+        loadHistory();
+    }
+}
+
+// Обработка формы импорта
+document.getElementById('importForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const formData = new FormData(this);
+
+    // Показываем прогресс
+    document.getElementById('importProgress').style.display = 'block';
+    document.getElementById('importStatus').textContent = 'Начинаем импорт...';
+
+    fetch('/contacts/import/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('importStatus').textContent = 'Импорт завершен успешно!';
+            // Обновляем историю
+            loadHistory();
+        } else {
+            document.getElementById('importStatus').textContent = 'Ошибка: ' + data.error;
+        }
+    })
+    .catch(error => {
+        console.error('Ошибка:', error);
+        document.getElementById('importStatus').textContent = 'Ошибка импорта: ' + error.message;
+    });
+});
+
+// Обработка формы экспорта
+document.getElementById('exportForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const formData = new FormData(this);
+    formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+
+    // Показываем прогресс
+    document.getElementById('exportProgress').style.display = 'block';
+    document.getElementById('exportStatus').textContent = 'Начинаем экспорт...';
+
+    fetch('/contacts/export/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('exportStatus').textContent = 'Экспорт завершен успешно!';
+            // Скачиваем файл
+            window.location.href = `/contacts/download/${data.job_id}/`;
+            // Обновляем историю
+            loadHistory();
+        } else {
+            document.getElementById('exportStatus').textContent = 'Ошибка: ' + data.error;
+        }
+    })
+    .catch(error => {
+        console.error('Ошибка:', error);
+        document.getElementById('exportStatus').textContent = 'Ошибка экспорта: ' + error.message;
+    });
+});
+
+// Функция для загрузки истории операций
+function loadHistory() {
+    fetch('/contacts/history/')
+    .then(response => response.json())
+    .then(data => {
+        const historyTable = document.getElementById('historyTable');
+        historyTable.innerHTML = '';
+
+        if (data.length === 0) {
+            historyTable.innerHTML = '<tr><td colspan="6">Нет данных об операциях</td></tr>';
+            return;
+        }
+
+        data.forEach(operation => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${operation.type_display}</td>
+                <td>${operation.format.toUpperCase()}</td>
+                <td>${operation.status_display}</td>
+                <td>${operation.processed_records}/${operation.total_records}</td>
+                <td>${new Date(operation.created_at).toLocaleString('ru-RU')}</td>
+                <td>
+                    ${operation.job_type === 'export' && operation.status === 'completed' ?
+                        `<a href="/contacts/download/${operation.id}/" class="download-link">Скачать</a>` :
+                        '—'
+                    }
+                </td>
+            `;
+            historyTable.appendChild(row);
+        });
+    })
+    .catch(error => {
+        console.error('Ошибка загрузки истории:', error);
+        document.getElementById('historyTable').innerHTML = '<tr><td colspan="6">Ошибка загрузки истории</td></tr>';
+    });
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    // Загружаем историю если открыта соответствующая вкладка
+    if (document.getElementById('history').classList.contains('active')) {
+        loadHistory();
+    }
+});
+</script>
+
+<style>
+.tabs {
+    display: flex;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+.tab-btn {
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+}
+
+.tab-btn.active {
+    border-bottom-color: #007bff;
+    font-weight: bold;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.form-group select,
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.progress {
+    height: 20px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: #007bff;
+    transition: width 0.3s;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.table th,
+.table td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+}
+
+.table th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.download-link {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.download-link:hover {
+    text-decoration: underline;
+}
+</style>
+{% endblock %}

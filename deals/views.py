@@ -10,7 +10,7 @@ from integration_utils.bitrix24.bitrix_user_auth.authenticate_on_start_applicati
     authenticate_on_start_application
 from integration_utils.bitrix24.bitrix_user_auth.get_bitrix_user_token_from_cookie import \
     get_bitrix_user_token_from_cookie, EmptyCookie
-from .models import CustomDeal, ProductQRLink
+from .models import CustomDeal, ProductQRLink, ImportExportJob, ImportExportRecord
 import qrcode
 import io
 import base64
@@ -24,8 +24,12 @@ from . import telephony_utils
 from .telephony_utils import generate_external_call
 import os
 from django.core.cache import cache
+import csv
+from .file_handlers.base_handler import FileHandlerFactory
+from .services.contact_service import ContactService
 
 logger = logging.getLogger(__name__)
+
 
 @csrf_exempt
 @main_auth(on_start=True, set_cookie=True)
@@ -841,3 +845,315 @@ def format_address(address_data):
 
     formatted_address = ', '.join(filter(None, address_parts))
     return formatted_address
+
+
+@main_auth(on_cookies=True)
+def contacts_import_export(request):
+    """Главная страница импорта/экспорта контактов"""
+    return render(request, 'deals/contacts_import_export.html', {
+        'user_name': f"{request.bitrix_user.first_name} {request.bitrix_user.last_name}".strip() or request.bitrix_user.email
+    })
+
+
+@main_auth(on_cookies=True)
+@csrf_exempt
+def import_contacts(request):
+    """Импорт контактов из файла"""
+    if request.method == 'POST':
+        try:
+            file = request.FILES.get('file')
+            file_format = request.POST.get('format', 'csv')
+
+            if not file:
+                return JsonResponse({'success': False, 'error': 'Файл не загружен'})
+
+            # Создаем задачу импорта
+            job = ImportExportJob.objects.create(
+                job_type=ImportExportJob.JOB_TYPE_IMPORT,
+                file_format=file_format,
+                created_by=request.bitrix_user,
+                file_name=file.name,
+                status=ImportExportJob.STATUS_PENDING
+            )
+
+            # Обрабатываем файл синхронно (без фоновых задач)
+            success = process_import_file(job.id, file, file_format, request.bitrix_user_token)
+
+            if success:
+                return JsonResponse({
+                    'success': True,
+                    'job_id': str(job.id),
+                    'message': 'Импорт завершен успешно!'
+                })
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Ошибка при импорте контактов'
+                })
+
+        except Exception as e:
+            logger.error(f"Ошибка импорта контактов: {e}")
+            return JsonResponse({'success': False, 'error': str(e)})
+
+    return JsonResponse({'success': False, 'error': 'Неверный метод запроса'})
+
+
+@main_auth(on_cookies=True)
+@csrf_exempt
+def export_contacts(request):
+    """Экспорт контактов в файл"""
+    if request.method == 'POST':
+        try:
+            file_format = request.POST.get('format', 'csv')
+            date_filter = request.POST.get('date_filter', 'all')
+
+            filters = {}
+            if date_filter == 'today':
+                filters['>=DATE_CREATE'] = datetime.now().strftime('%Y-%m-%d')
+            elif date_filter == 'yesterday':
+                yesterday = datetime.now() - timedelta(days=1)
+                filters['DATE_CREATE'] = yesterday.strftime('%Y-%m-%d')
+            elif date_filter == 'last_week':
+                last_week = datetime.now() - timedelta(days=7)
+                filters['>=DATE_CREATE'] = last_week.strftime('%Y-%m-%d')
+
+            # Создаем задачу экспорта
+            job = ImportExportJob.objects.create(
+                job_type=ImportExportJob.JOB_TYPE_EXPORT,
+                file_format=file_format,
+                created_by=request.bitrix_user,
+                file_name=f"contacts_export.{file_format}",
+                filter_params=filters,
+                status=ImportExportJob.STATUS_PENDING
+            )
+
+            # Обрабатываем экспорт синхронно
+            success = process_export(job.id, filters, file_format, request.bitrix_user_token)
+
+            if success:
+                return JsonResponse({
+                    'success': True,
+                    'job_id': str(job.id),
+                    'message': 'Экспорт завершен успешно!'
+                })
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Ошибка при экспорте контактов'
+                })
+
+        except Exception as e:
+            logger.error(f"Ошибка экспорта контактов: {e}")
+            return JsonResponse({'success': False, 'error': str(e)})
+
+    return JsonResponse({'success': False, 'error': 'Неверный метод запроса'})
+
+
+def process_import_file(job_id, file, file_format, bitrix_token):
+    """Обработка импорта контактов"""
+    try:
+        job = ImportExportJob.objects.get(id=job_id)
+        job.status = ImportExportJob.STATUS_PROCESSING
+        job.save()
+
+        contact_service = ContactService(bitrix_token)
+        handler = FileHandlerFactory.get_handler(file_format)
+
+        # Читаем записи из файла
+        records = handler.read_records(file)
+        job.total_records = len(records)
+        job.save()
+
+        success_count = 0
+        fail_count = 0
+
+        # Обрабатываем записи пачками по 50
+        batch_size = 50
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i + batch_size]
+            results = contact_service.batch_create_contacts(batch)
+
+            for j, result in enumerate(results):
+                record_index = i + j
+                contact_data = batch[j]
+
+                ImportExportRecord.objects.create(
+                    job=job,
+                    record_index=record_index,
+                    contact_data=contact_data,
+                    status='success' if result.get('success') else 'failed',
+                    error_message=result.get('error', ''),
+                    bitrix_contact_id=result.get('contact_id')
+                )
+
+                if result.get('success'):
+                    success_count += 1
+                else:
+                    fail_count += 1
+
+            job.processed_records = i + len(batch)
+            job.failed_records = fail_count
+            job.save()
+
+        job.status = ImportExportJob.STATUS_COMPLETED
+        job.completed_at = timezone.now()
+        job.save()
+
+        return True
+
+    except Exception as e:
+        job.status = ImportExportJob.STATUS_FAILED
+        job.error_message = str(e)
+        job.save()
+        logger.error(f"Ошибка обработки импорта: {e}")
+        return False
+
+
+def process_export(job_id, filters, file_format, bitrix_token):
+    """Обработка экспорта контактов"""
+    try:
+        job = ImportExportJob.objects.get(id=job_id)
+        job.status = ImportExportJob.STATUS_PROCESSING
+        job.save()
+
+        contact_service = ContactService(bitrix_token)
+
+        # Получаем контакты
+        contacts = contact_service.get_contacts(filters)
+        job.total_records = len(contacts)
+        job.save()
+
+        # Получаем названия компаний
+        contact_ids = [contact['ID'] for contact in contacts]
+        company_names = contact_service.get_contact_companies(contact_ids)
+
+        # Подготавливаем данные для экспорта
+        export_data = []
+        for i, contact in enumerate(contacts):
+            phone = ''
+            if contact.get('PHONE'):
+                phone = contact['PHONE'][0]['VALUE'] if isinstance(contact['PHONE'], list) else contact['PHONE']
+
+            email = ''
+            if contact.get('EMAIL'):
+                email = contact['EMAIL'][0]['VALUE'] if isinstance(contact['EMAIL'], list) else contact['EMAIL']
+
+            company_name = company_names.get(contact['ID'], '')
+
+            record_data = {
+                'first_name': contact.get('NAME', ''),
+                'last_name': contact.get('LAST_NAME', ''),
+                'phone': phone,
+                'email': email,
+                'company_name': company_name
+            }
+
+            ImportExportRecord.objects.create(
+                job=job,
+                record_index=i,
+                contact_data=record_data,
+                status='exported',
+                bitrix_contact_id=contact['ID']
+            )
+
+            export_data.append(record_data)
+
+            job.processed_records = i + 1
+            job.save()
+
+        # Сохраняем экспортированные данные в файл
+        handler = FileHandlerFactory.get_handler(file_format)
+        response = handler.write_records(export_data)
+
+        # Сохраняем файл в медиа
+        file_content = response.content
+        file_name = f"export_{job_id}.{file_format}"
+        job.export_file.save(file_name, ContentFile(file_content))
+
+        job.status = ImportExportJob.STATUS_COMPLETED
+        job.completed_at = timezone.now()
+        job.save()
+
+        return True
+
+    except Exception as e:
+        job.status = ImportExportJob.STATUS_FAILED
+        job.error_message = str(e)
+        job.save()
+        logger.error(f"Ошибка обработки экспорта: {e}")
+        return False
+
+
+@main_auth(on_cookies=True)
+def download_export(request, job_id):
+    """Скачивание экспортированного файла"""
+    try:
+        job = ImportExportJob.objects.get(
+            id=job_id,
+            created_by=request.bitrix_user,
+            status=ImportExportJob.STATUS_COMPLETED,
+            job_type=ImportExportJob.JOB_TYPE_EXPORT
+        )
+
+        if not job.export_file:
+            return HttpResponse("Файл не найден", status=404)
+
+        response = HttpResponse(job.export_file.read(), content_type='application/octet-stream')
+        response['Content-Disposition'] = f'attachment; filename="{job.file_name}"'
+        return response
+
+    except ImportExportJob.DoesNotExist:
+        return HttpResponse("Файл не найден или еще не готов", status=404)
+    except Exception as e:
+        logger.error(f"Ошибка скачивания файла: {e}")
+        return HttpResponse("Ошибка при создании файла", status=500)
+
+
+@main_auth(on_cookies=True)
+def get_job_status(request, job_id):
+    """Получение статуса задачи"""
+    try:
+        job = ImportExportJob.objects.get(id=job_id, created_by=request.bitrix_user)
+
+        return JsonResponse({
+            'success': True,
+            'status': job.status,
+            'total_records': job.total_records,
+            'processed_records': job.processed_records,
+            'failed_records': job.failed_records,
+            'error_message': job.error_message
+        })
+
+    except ImportExportJob.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Задача не найдена'})
+
+
+@main_auth(on_cookies=True)
+def contacts_history(request):
+    """Получение истории операций импорта/экспорта"""
+    try:
+        jobs = ImportExportJob.objects.filter(
+            created_by=request.bitrix_user
+        ).order_by('-created_at')[:20]  # Последние 20 операций
+
+        history_data = []
+        for job in jobs:
+            history_data.append({
+                'id': str(job.id),
+                'job_type': job.job_type,
+                'type_display': job.get_job_type_display(),
+                'format': job.file_format,
+                'status': job.status,
+                'status_display': job.get_status_display(),
+                'total_records': job.total_records,
+                'processed_records': job.processed_records,
+                'failed_records': job.failed_records,
+                'created_at': job.created_at.isoformat(),
+                'file_name': job.file_name
+            })
+
+        return JsonResponse(history_data, safe=False)
+
+    except Exception as e:
+        logger.error(f"Ошибка получения истории: {e}")
+        return JsonResponse([], safe=False)
