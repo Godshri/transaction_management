@@ -28,7 +28,7 @@ class CSVHandler(BaseFileHandler):
         records = []
 
         try:
-            # Пытаемся прочитать в разных кодировках
+
             for encoding in ['utf-8-sig', 'utf-8', 'cp1251', 'windows-1251']:
                 try:
                     file.seek(0)
@@ -39,7 +39,7 @@ class CSVHandler(BaseFileHandler):
             else:
                 raise ValueError("Не удалось определить кодировку файла")
 
-            # Определяем разделитель
+
             sample = content[:1024]
             if ';' in sample and sample.count(';') > sample.count(','):
                 delimiter = ';'
@@ -48,19 +48,19 @@ class CSVHandler(BaseFileHandler):
 
             io_string = io.StringIO(content)
 
-            # Читаем CSV
+
             reader = csv.DictReader(io_string, delimiter=delimiter)
 
             for row_num, row in enumerate(reader, 1):
                 try:
-                    # Нормализуем ключи
+
                     normalized_row = {}
                     for key, value in row.items():
                         if key:
                             normalized_key = key.strip().lower().replace('\ufeff', '')
                             normalized_row[normalized_key] = value.strip() if value else ''
 
-                    # Маппинг полей
+
                     record = {
                         'first_name': '',
                         'last_name': '',
@@ -69,7 +69,7 @@ class CSVHandler(BaseFileHandler):
                         'company_name': ''
                     }
 
-                    # Ищем подходящие названия колонок
+
                     for key in normalized_row.keys():
                         if any(x in key for x in ['имя', 'name', 'first']):
                             record['first_name'] = normalized_row[key]
@@ -82,7 +82,7 @@ class CSVHandler(BaseFileHandler):
                         elif any(x in key for x in ['компания', 'company']):
                             record['company_name'] = normalized_row[key]
 
-                    # Проверяем, что есть хотя бы имя или фамилия
+
                     if record['first_name'] or record['last_name']:
                         records.append(record)
 
@@ -102,10 +102,10 @@ class CSVHandler(BaseFileHandler):
             output = io.StringIO()
             writer = csv.writer(output, delimiter=',', quoting=csv.QUOTE_ALL)
 
-            # Заголовки
+
             writer.writerow(['Имя', 'Фамилия', 'Телефон', 'Email', 'Компания'])
 
-            # Данные
+
             for record in records:
                 writer.writerow([
                     record.get('first_name', ''),
@@ -144,11 +144,11 @@ class XLSXHandler(BaseFileHandler):
 
             for row_num, row in enumerate(sheet.iter_rows(values_only=True), 1):
                 if row_num == 1:
-                    # Заголовки
+
                     headers = [str(cell).strip().lower() if cell else '' for cell in row]
                     continue
 
-                if not any(cell for cell in row):  # Пропускаем пустые строки
+                if not any(cell for cell in row):
                     continue
 
                 try:
@@ -160,7 +160,7 @@ class XLSXHandler(BaseFileHandler):
                         'company_name': ''
                     }
 
-                    # Маппинг данных
+
                     for col_num, cell in enumerate(row):
                         if col_num < len(headers) and cell is not None:
                             cell_value = str(cell).strip()
@@ -177,7 +177,7 @@ class XLSXHandler(BaseFileHandler):
                             elif any(x in header for x in ['компания', 'company']):
                                 record['company_name'] = cell_value
 
-                    # Добавляем только если есть данные
+
                     if record['first_name'] or record['last_name']:
                         records.append(record)
 
@@ -202,10 +202,10 @@ class XLSXHandler(BaseFileHandler):
             sheet = workbook.active
             sheet.title = "Контакты"
 
-            # Заголовки
+
             sheet.append(['Имя', 'Фамилия', 'Телефон', 'Email', 'Компания'])
 
-            # Данные
+
             for record in records:
                 sheet.append([
                     record.get('first_name', ''),
@@ -215,7 +215,7 @@ class XLSXHandler(BaseFileHandler):
                     record.get('company_name', '')
                 ])
 
-            # Авто-ширина колонок
+
             for column in sheet.columns:
                 max_length = 0
                 column_letter = column[0].column_letter
