@@ -14,7 +14,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let timeout = null;
 
-    // Функция для обработки описания (удаление HTML тегов и ограничение слов)
     function processDescription(text) {
         if (!text) return { short: 'Не указано', full: 'Не указано', hasMore: false };
 
@@ -44,7 +43,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Функция для загрузки полной информации о товаре
     function loadProductDetails(productId) {
         fetch(`/api/product-details/?id=${productId}`)
             .then(response => response.json())
@@ -80,7 +78,6 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(error => {
                 console.error('Error loading product details:', error);
-                // Показываем базовую информацию
                 productName.textContent = `Товар ID: ${productId}`;
                 priceValue.textContent = 'Информация недоступна';
                 shortDescription.textContent = 'Не указано';
@@ -91,7 +88,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
     }
 
-    // Поиск товаров при вводе
     searchInput.addEventListener('input', function() {
         clearTimeout(timeout);
         timeout = setTimeout(function() {
@@ -127,7 +123,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                 searchInput.value = product.name;
                                 resultsContainer.style.display = 'none';
 
-                                // Загружаем полную информацию о товаре
                                 loadProductDetails(product.id);
                             });
 
@@ -145,7 +140,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 300);
     });
 
-    // Получение информации о товаре по ID при ручном вводе
     productIdInput.addEventListener('blur', function() {
         const productId = this.value.trim();
         if (productId) {
@@ -153,7 +147,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Скрытие результатов при клике вне области
     document.addEventListener('click', function(e) {
         if (!resultsContainer.contains(e.target) && e.target !== searchInput) {
             resultsContainer.style.display = 'none';

@@ -227,7 +227,7 @@ def generate_qr(request):
                 'SECTION_ID': product.get('SECTION_ID'),
             }
 
-            # Создаем секретную ссылку с сохраненными данными
+
             qr_link = ProductQRLink.objects.create(
                 product_id=product_id_int,
                 product_name=product_name,
@@ -392,7 +392,7 @@ def employees_table(request):
     try:
         token = request.bitrix_user_token
 
-        # Получаем всех активных пользователей
+
         users_result = token.call_api_method('user.get', {
             'filter': {'ACTIVE': True},
             'select': ['ID', 'NAME', 'LAST_NAME', 'SECOND_NAME', 'UF_DEPARTMENT', 'WORK_POSITION', 'UF_HEAD', 'EMAIL'],
@@ -403,13 +403,13 @@ def employees_table(request):
         if not isinstance(active_users, list):
             active_users = []
 
-        # Получаем структуру отделов
+
         departments_result = token.call_api_method('department.get', {})
         departments = departments_result.get('result', [])
         if not isinstance(departments, list):
             departments = []
 
-        # Получаем статистику звонков за последние 24 часа
+
         call_stats = get_call_statistics(token)
 
         call_count_by_user = {}
@@ -420,7 +420,7 @@ def employees_table(request):
                     user_id_str = str(user_id)
                     call_count_by_user[user_id_str] = call_count_by_user.get(user_id_str, 0) + 1
 
-        # Формируем данные для таблицы
+
         employees_data = []
         for user in active_users:
             if not isinstance(user, dict):
@@ -465,7 +465,7 @@ def get_manager_chain(user, departments, all_users):
     users_by_id = {str(u['ID']): u for u in all_users}
     departments_by_id = {str(dept['ID']): dept for dept in departments}
 
-    # 1. Прямой руководитель
+
     direct_head_id = user.get('UF_HEAD')
     if direct_head_id:
         direct_head_id_str = str(direct_head_id)
@@ -482,7 +482,7 @@ def get_manager_chain(user, departments, all_users):
                     })
                     processed_users.add(direct_head_id_str)
 
-    # 2. Руководители отделов пользователя
+
     user_departments = normalize_department_ids(user.get('UF_DEPARTMENT', []))
 
     for dept_id in user_departments:
@@ -490,7 +490,7 @@ def get_manager_chain(user, departments, all_users):
         if not dept:
             continue
 
-        # Руководитель текущего отдела
+
         dept_head_id = dept.get('UF_HEAD')
         if dept_head_id:
             dept_head_id_str = str(dept_head_id)
@@ -507,7 +507,6 @@ def get_manager_chain(user, departments, all_users):
                         })
                         processed_users.add(dept_head_id_str)
 
-        # Руководители родительских отделов (иерархия вверх)
         parent_dept_id = dept.get('PARENT')
         while parent_dept_id:
             parent_dept = departments_by_id.get(str(parent_dept_id))
@@ -530,7 +529,6 @@ def get_manager_chain(user, departments, all_users):
                             })
                             processed_users.add(parent_head_id_str)
 
-            # Переходим к следующему родительскому отделу
             parent_dept_id = parent_dept.get('PARENT')
 
     return managers
@@ -577,17 +575,17 @@ def get_call_statistics(token):
     try:
         all_calls = []
         start = 0
-        limit = 50  # Максимальное количество записей за один запрос
+        limit = 50
 
-        # Фильтр для последних 24 часов
+
         filter_date = (timezone.now() - timedelta(hours=24)).isoformat()
 
         while True:
             calls_result = token.call_api_method('voximplant.statistic.get', {
                 'FILTER': {
                     '>CALL_START_DATE': filter_date,
-                    'CALL_TYPE': 1,  # Исходящие звонки
-                    '>CALL_DURATION': 60  # Более 1 минуты
+                    'CALL_TYPE': 1,
+                    '>CALL_DURATION': 60
                 },
                 'ORDER': {'CALL_START_DATE': 'DESC'},
                 'start': start
@@ -602,7 +600,6 @@ def get_call_statistics(token):
 
             all_calls.extend(calls)
 
-            # Если получено меньше записей, чем лимит, значит это последняя страница
             if len(calls) < limit:
                 break
 
@@ -620,7 +617,7 @@ def generate_test_calls(request):
     try:
         token = request.bitrix_user_token
 
-        # Получаем активных пользователей
+
         users_result = token.call_api_method('user.get', {
             'filter': {'ACTIVE': True},
             'select': ['ID', 'NAME', 'LAST_NAME']
@@ -869,7 +866,6 @@ def import_contacts(request):
             if not file:
                 return JsonResponse({'success': False, 'error': 'Файл не загружен'})
 
-            # Создаем задачу импорта
             job = ImportExportJob.objects.create(
                 job_type=ImportExportJob.JOB_TYPE_IMPORT,
                 file_format=file_format,
@@ -878,7 +874,7 @@ def import_contacts(request):
                 status=ImportExportJob.STATUS_PENDING
             )
 
-            # Обрабатываем файл синхронно (без фоновых задач)
+
             success = process_import_file(job.id, file, file_format, request.bitrix_user_token)
 
             if success:
@@ -919,7 +915,7 @@ def export_contacts(request):
                 last_week = datetime.now() - timedelta(days=7)
                 filters['>=DATE_CREATE'] = last_week.strftime('%Y-%m-%d')
 
-            # Создаем задачу экспорта
+
             job = ImportExportJob.objects.create(
                 job_type=ImportExportJob.JOB_TYPE_EXPORT,
                 file_format=file_format,
@@ -929,7 +925,6 @@ def export_contacts(request):
                 status=ImportExportJob.STATUS_PENDING
             )
 
-            # Обрабатываем экспорт синхронно
             success = process_export(job.id, filters, file_format, request.bitrix_user_token)
 
             if success:
@@ -960,7 +955,6 @@ def process_import_file(job_id, file, file_format, bitrix_token):
 
         contact_service = ContactService(bitrix_token)
 
-        # Читаем файл
         handler = FileHandlerFactory.get_handler(file_format)
         records = handler.read_records(file)
 
@@ -973,7 +967,6 @@ def process_import_file(job_id, file, file_format, bitrix_token):
         job.total_records = len(records)
         job.save()
 
-        # Обрабатываем пачками по 50 записей для эффективности
         batch_size = 50
         success_count = 0
         fail_count = 0
@@ -1000,12 +993,10 @@ def process_import_file(job_id, file, file_format, bitrix_token):
                 else:
                     fail_count += 1
 
-            # Обновляем прогресс после каждой пачки
             job.processed_records = min(i + batch_size, len(records))
             job.failed_records = fail_count
             job.save()
 
-            # Короткая пауза между batch запросами
             time.sleep(0.5)
 
         job.status = ImportExportJob.STATUS_COMPLETED
@@ -1033,7 +1024,6 @@ def process_export(job_id, filters, file_format, bitrix_token):
 
         contact_service = ContactService(bitrix_token)
 
-        # Получаем контакты
         contacts = contact_service.get_contacts(filters)
 
         if not contacts:
@@ -1047,14 +1037,11 @@ def process_export(job_id, filters, file_format, bitrix_token):
         job.total_records = len(contacts)
         job.save()
 
-        # Получаем названия компаний через batch
         contact_ids = [contact['ID'] for contact in contacts]
         company_names = contact_service.get_contact_companies(contact_ids)
 
-        # Подготавливаем данные для экспорта
         export_data = []
         for i, contact in enumerate(contacts):
-            # Обрабатываем телефон
             phone = ''
             if contact.get('PHONE'):
                 phones = contact['PHONE']
@@ -1063,7 +1050,7 @@ def process_export(job_id, filters, file_format, bitrix_token):
                 elif isinstance(phones, dict):
                     phone = phones.get('VALUE', '')
 
-            # Обрабатываем email
+
             email = ''
             if contact.get('EMAIL'):
                 emails = contact['EMAIL']
@@ -1082,7 +1069,6 @@ def process_export(job_id, filters, file_format, bitrix_token):
                 'company_name': company_name
             }
 
-            # Сохраняем запись
             ImportExportRecord.objects.create(
                 job=job,
                 record_index=i,
@@ -1094,17 +1080,14 @@ def process_export(job_id, filters, file_format, bitrix_token):
             export_data.append(record_data)
             job.processed_records = i + 1
 
-            # Обновляем прогресс каждые 50 записей
             if (i + 1) % 50 == 0:
                 job.save()
 
         job.save()
 
-        # Создаем файл
         handler = FileHandlerFactory.get_handler(file_format)
         response = handler.write_records(export_data)
 
-        # Сохраняем файл
         file_name = f"export_{job_id}.{file_format}"
         job.export_file.save(file_name, ContentFile(response.content))
 
@@ -1172,7 +1155,7 @@ def contacts_history(request):
     try:
         jobs = ImportExportJob.objects.filter(
             created_by=request.bitrix_user
-        ).order_by('-created_at')[:20]  # Последние 20 операций
+        ).order_by('-created_at')[:20]
 
         history_data = []
         for job in jobs:

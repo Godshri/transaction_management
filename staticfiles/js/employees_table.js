@@ -1,12 +1,10 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // Инициализация BX24
     if (typeof BX24 !== 'undefined') {
         BX24.init(function() {
             console.log('BX24 SDK инициализирован');
         });
     }
 
-    // Обработка кликов по сотрудникам и руководителям
     document.querySelectorAll('.employee-link, .manager-link').forEach(link => {
         link.addEventListener('click', function(e) {
             e.preventDefault();
@@ -15,7 +13,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Генерация тестовых звонков
     document.getElementById('generate-test-calls').addEventListener('click', function() {
         const button = this;
         const status = document.getElementById('generate-status');
@@ -34,7 +31,6 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.success) {
                 status.textContent = data.message;
-                // Обновляем страницу через 2 секунды
                 setTimeout(() => {
                     window.location.reload();
                 }, 2000);
@@ -51,13 +47,10 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Функция для открытия профиля пользователя
     function openUserProfile(userId) {
         if (typeof BX24 !== 'undefined' && BX24.openPath) {
-            // Открываем в слайдере
             BX24.openPath(`/company/personal/user/${userId}/`, { slide: true });
         } else {
-            // Fallback: открываем в новой вкладке
             window.open(`/company/personal/user/${userId}/`, '_blank');
         }
     }

@@ -1,4 +1,3 @@
-// company_map.js
 function initMap() {
     if (typeof ymaps === 'undefined') {
         console.error('Yandex Maps API не загружена');
@@ -18,7 +17,6 @@ function initMap() {
         console.log('Точки:', points);
 
         if (points.length === 0) {
-            // Если нет точек, показываем сообщение
             var noDataControl = new ymaps.Control({
                 content: '<div style="padding: 10px; background: white; border-radius: 5px; border: 1px solid #ddd;">' +
                          '<p>Нет данных для отображения на карте</p>' +
@@ -38,7 +36,6 @@ function initMap() {
         });
 
         points.forEach(function(point, index) {
-            // Проверяем, что есть координаты
             if (!point.GEOCODE || !Array.isArray(point.GEOCODE) || point.GEOCODE.length !== 2) {
                 console.warn('Пропущена точка без координат:', point);
                 return;
@@ -140,12 +137,9 @@ function updateStats() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Обновляем статистику
     updateStats();
 
-    // Инициализируем карту после загрузки DOM
     if (document.getElementById('map')) {
-        // Ждем немного для полной загрузки API карт
         setTimeout(initMap, 100);
     }
 });

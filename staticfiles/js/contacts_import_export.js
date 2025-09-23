@@ -1,4 +1,3 @@
-// Функции для управления вкладками
 function openTab(tabName) {
     const tabContents = document.getElementsByClassName('tab-content');
     for (let i = 0; i < tabContents.length; i++) {
@@ -13,19 +12,16 @@ function openTab(tabName) {
     document.getElementById(tabName).classList.add('active');
     event.currentTarget.classList.add('active');
 
-    // Если открываем вкладку истории, загружаем данные
     if (tabName === 'history') {
         loadHistory();
     }
 }
 
-// Обработка формы импорта
 document.getElementById('importForm').addEventListener('submit', function(e) {
     e.preventDefault();
 
     const formData = new FormData(this);
 
-    // Показываем прогресс
     document.getElementById('importProgress').style.display = 'block';
     document.getElementById('importStatus').textContent = 'Начинаем импорт...';
 
@@ -40,7 +36,6 @@ document.getElementById('importForm').addEventListener('submit', function(e) {
     .then(data => {
         if (data.success) {
             document.getElementById('importStatus').textContent = 'Импорт завершен успешно!';
-            // Обновляем историю
             loadHistory();
         } else {
             document.getElementById('importStatus').textContent = 'Ошибка: ' + data.error;
@@ -52,14 +47,12 @@ document.getElementById('importForm').addEventListener('submit', function(e) {
     });
 });
 
-// Обработка формы экспорта
 document.getElementById('exportForm').addEventListener('submit', function(e) {
     e.preventDefault();
 
     const formData = new FormData(this);
     formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
 
-    // Показываем прогресс
     document.getElementById('exportProgress').style.display = 'block';
     document.getElementById('exportStatus').textContent = 'Начинаем экспорт...';
 
@@ -74,9 +67,7 @@ document.getElementById('exportForm').addEventListener('submit', function(e) {
     .then(data => {
         if (data.success) {
             document.getElementById('exportStatus').textContent = 'Экспорт завершен успешно!';
-            // Скачиваем файл
             window.location.href = `/contacts/download/${data.job_id}/`;
-            // Обновляем историю
             loadHistory();
         } else {
             document.getElementById('exportStatus').textContent = 'Ошибка: ' + data.error;
@@ -88,7 +79,6 @@ document.getElementById('exportForm').addEventListener('submit', function(e) {
     });
 });
 
-// Функция для загрузки истории операций
 function loadHistory() {
     fetch('/contacts/history/')
     .then(response => response.json())
@@ -125,9 +115,7 @@ function loadHistory() {
     });
 }
 
-// Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
-    // Загружаем историю если открыта соответствующая вкладка
     if (document.getElementById('history').classList.contains('active')) {
         loadHistory();
     }

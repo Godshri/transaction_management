@@ -1,6 +1,3 @@
-// Базовые утилиты и функции, общие для всех страниц
-
-// Функция для получения CSRF токена
 function getCookie(name) {
     let cookieValue = null;
     if (document.cookie && document.cookie !== '') {
@@ -16,7 +13,6 @@ function getCookie(name) {
     return cookieValue;
 }
 
-// Функция для показа уведомлений
 function showNotification(message, type = 'info') {
     const notification = document.createElement('div');
     notification.className = `notification notification-${type}`;
@@ -42,18 +38,15 @@ function showNotification(message, type = 'info') {
 
     document.body.appendChild(notification);
 
-    // Автоматическое скрытие через 5 секунд
     setTimeout(() => {
         notification.remove();
     }, 5000);
 
-    // Закрытие по клику
     notification.querySelector('.notification-close').addEventListener('click', () => {
         notification.remove();
     });
 }
 
-// Функция для проверки прогресса операций
 function checkProgress(jobId, type = 'import') {
     const checkInterval = setInterval(() => {
         fetch(`/contacts/status/${jobId}/`)
@@ -95,7 +88,6 @@ function checkProgress(jobId, type = 'import') {
     }, 2000);
 }
 
-// Инициализация при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Base JavaScript loaded');
 });
